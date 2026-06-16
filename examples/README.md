@@ -3,50 +3,51 @@
 A fictional clothing retailer ("AnyaFinn", Amplience's standard dummy retailer) — **all data is invented** and safe to use in docs, demos, and tests.
 
 - [`ecommerce-examples.xlsx`](ecommerce-examples.xlsx) — one workbook, seven tabs (upload to Google Sheets to try the extension).
-- [`csv/`](csv) — the same seven tabs exported as CSV (handy for **CSV Tools** — see below).
+- [`csv/`](csv) — the same seven tabs exported as CSV (drop into Table Tools' `csvToRows` to demo without a live sheet).
 
-## Each tab maps to a function
+## Each tab + the use case it shows
 
-| Tab | Shape | Action it demonstrates | Use case |
+These use the two extensions together: **Google Sheets** loads the rows; **Table Tools** queries/shapes them.
+
+| Tab | Shape | Pipeline | Use case |
 | --- | --- | --- | --- |
 | **Products** | rows of products | `loadRows` | Product data — flow inputs/outputs |
-| **Taxonomy** | Department → Category → Subcategory + code | `loadRows` / `lookupRows` | Taxonomy lookup |
-| **Range to Category** | range → category → which attribute tab applies | `lookupRows` | Mapping / join-key lookup |
-| **Allowed Values - Dresses** | column-oriented (each column = an attribute) | `getColumnValues` | Attribute lookup |
-| **Allowed Values - Tops** | column-oriented | `getColumnValues` + `listTabs` | Attribute lookup across tabs |
-| **Synonyms** | canonical term → synonyms | `lookupRows` | Synonyms lookup |
-| **Brand Dictionary** | term → type/replacement | `lookupRows` / `getColumnValues` | Dictionary (allowed/banned words) |
+| **Taxonomy** | Department → Category → Subcategory + code | `loadRows` → `joinRows` | Taxonomy lookup / enrichment |
+| **Range to Category** | range → category → which attribute tab applies | `loadRows` → `filterRows` / `joinRows` | Mapping / join-key lookup |
+| **Allowed Values - Dresses** | column-oriented (each column = an attribute) | `loadRows` → `pluckColumn` | Attribute lookup |
+| **Allowed Values - Tops** | column-oriented | `listTabs` → `loadRows` → `pluckColumn` | Attribute lookup across tabs |
+| **Synonyms** | canonical term → synonyms | `loadRows` → `filterRows` | Synonyms lookup |
+| **Brand Dictionary** | term → type/replacement | `loadRows` → `filterRows` / `pluckColumn` | Dictionary (allowed/banned words) |
 
-### Worked examples
+### Worked examples (Sheets load → Table Tools query)
 
 - **Attribute lookup** — "What neck shapes are allowed for dresses?"
-  `getColumnValues({ tab: "Allowed Values - Dresses", column: "Neck Shape" })`
+  `loadRows({ tab: "Allowed Values - Dresses" })` → `pluckColumn({ rows, column: "Neck Shape" })`
   → `["Crew Neck","V-Neck","Scoop","Halter","Square"]`
 - **Synonyms** — "What do people call trousers?"
-  `lookupRows({ tab: "Synonyms", matchColumn: "Canonical Term", matchValue: "Trousers" })`
+  `loadRows({ tab: "Synonyms" })` → `filterRows({ rows, column: "Canonical Term", operator: "eq", value: "Trousers" })`
   → `[{ "Canonical Term": "Trousers", "Synonyms": "pants, slacks, chinos" }]`
 - **Dictionary** — "Is 'cheap' an allowed word?"
-  `lookupRows({ tab: "Brand Dictionary", matchColumn: "Term", matchValue: "cheap" })`
+  `loadRows({ tab: "Brand Dictionary" })` → `filterRows({ rows, column: "Term", operator: "eq", value: "cheap" })`
   → `[{ Term: "cheap", Type: "Banned", Replacement: "great value", ... }]`
-- **Taxonomy → attribute chain** — given a merchandising range, find which attribute set applies:
-  `lookupRows({ tab: "Range to Category", matchColumn: "Product Range", matchValue: "LADIES DAY DRESSES" })`
-  → the `Attribute Tab` value (`"Allowed Values - Dresses"`), then feed that into `getColumnValues`.
+- **Enrich products with taxonomy** — attach the `Category Code` to every product in one step:
+  `loadRows({ tab: "Products" })` + `loadRows({ tab: "Taxonomy" })` → `joinRows({ leftRows, rightRows, leftKey: "Category", rightKey: "Category" })`
 
-## How this fits with **CSV Tools**
+## How the two extensions fit together
 
-Google Sheets Reader and [CSV Tools](https://github.com/pippalarge/csv-tools-workforce-extension) are two halves of one tabular-data pipeline, and they share the **same data shape**: an array of header-keyed row objects (`rows`).
+[Google Sheets](https://github.com/pippalarge/google-sheets-reader-workforce-extension) and [Table Tools](https://github.com/pippalarge/csv-tools-workforce-extension) are two halves of one tabular-data pipeline, joined by a shared shape: **`rows`** (an array of header-keyed objects).
 
-- **Google Sheets Reader = I/O** — gets `rows` *out of* a sheet (a live, business-user-owned source).
-- **CSV Tools = transforms** — pure-CPU shaping of `rows`: `filterRows`, `selectColumns`, `mapColumns`, `validateRows`, `dedupeRows`, `chunkRows`, `summarizeRows`, `toJson` / `arrayToCsv`.
+- **Google Sheets = I/O** — gets `rows` out of (`loadRows` / `loadTabs`) and back into (`appendRows` / `updateRange`) a live, business-owned sheet.
+- **Table Tools = transforms** — pure-CPU shaping of `rows`: `filterRows`, `sortRows`, `joinRows`, `addColumn`, `pluckColumn`, `selectColumns`, `validateRows`, `dedupeRows`, `chunkRows`, and CSV/JSON adapters.
 
-Because `loadRows` outputs `{ rows: [...] }` and every CSV Tools action takes `{ rows: [...] }`, they chain with no glue code:
+Because `loadRows` outputs `{ rows: [...] }` and every Table Tools action takes `{ rows: [...] }`, they chain with no glue:
 
 ```
-loadRows (Sheets)  →  validateRows (CSV Tools)  →  filterRows  →  selectColumns  →  toJson / arrayToCsv  →  downstream step
+loadRows (Sheets)  →  joinRows / addColumn / filterRows (Table Tools)  →  appendRows (Sheets write-back)
 ```
 
 Two patterns worth knowing:
-- **Stay under the API cap.** Read a sheet once with `loadRows` (or all tabs with `loadTabs`), then `chunkRows` (CSV Tools) to batch the rows for any per-row API step — one sheet read, not one per row.
-- **Reference-data lookups in memory.** For a taxonomy/dictionary an agent hits many times, read the tab once and filter in memory rather than calling `lookupRows` per item.
+- **Stay under the API cap.** Load a sheet once with `loadRows` (or all tabs with `loadTabs`), then `chunkRows` (Table Tools) to batch the rows for any per-row API step — one sheet read, not one per row.
+- **Reference-data lookups in memory.** For a taxonomy/dictionary used many times, load the tab once and filter in memory rather than re-reading per item.
 
-The CSV files in [`csv/`](csv) are the same data in the format `CSV Tools`' `parseCsv` consumes — so you can demo the two extensions together without a live sheet.
+The CSV files in [`csv/`](csv) are the same data in the form Table Tools' `csvToRows` consumes — so you can demo the two extensions together without a live sheet.

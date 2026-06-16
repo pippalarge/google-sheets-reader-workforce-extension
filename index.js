@@ -3,8 +3,13 @@
 // Reads data OUT of a Google Sheet and (v1b) writes data BACK to one, so a
 // Workforce flow or an agent can use a sheet as both a source and a sink.
 //
+// This is the I/O half of a pair: it gets rows IN and OUT of a sheet. Shaping
+// those rows (filter, sort, join, add/drop columns, pluck a column's values) is
+// the Table Tools extension's job — both speak the same `rows` shape (an array
+// of header-keyed objects), so they compose: loadRows → Table Tools → appendRows.
+//
 // TWO AUTH MODELS, by direction (this is the key thing to understand):
-//   - READ  (listTabs, describeSheet, readRows, getColumnValues, lookupRows):
+//   - READ  (listTabs, describeSheet, loadRows, loadTabs):
 //     a Google API key (GOOGLE_API_KEY) used as ?key=... This works ONLY on
 //     sheets shared as "anyone with the link can view" — no login needed.
 //   - WRITE (appendRows, updateRange): an API key CANNOT write. Writing needs
@@ -16,11 +21,11 @@
 //     refresh-token flow needs no signing and runs unattended.
 //
 // USE CASES this serves:
-//   - reference data ....... a product taxonomy, a dictionary of allowed words,
-//                            a set of rules (the column-lookup workhorse) [read]
-//   - flow inputs .......... rows of data fed into a flow                  [read]
-//   - eval data ............ a table of test cases for a flow or action    [read]
-//   - flow outputs ......... enriched/generated rows written back          [write]
+//   - reference data ....... load a product taxonomy, a dictionary, a rules tab
+//                            (then look it up with Table Tools)             [read]
+//   - flow inputs .......... rows of data fed into a flow                   [read]
+//   - eval data ............ a table of test cases for a flow or action     [read]
+//   - flow outputs ......... enriched/generated rows written back           [write]
 //
 // WRITE GUARDRAILS: writes default to RAW input (a cell value like "=SUM(...)"
 // is stored as literal text, never executed — this blocks formula injection).
@@ -32,8 +37,8 @@
 //   - Tabs are first-class. The tab name is often itself a lookup/join key, so
 //     listTabs lets a flow/agent discover tabs before reading one.
 //   - Sheets can be COLUMN-oriented (each column = an attribute, the cells down
-//     it = the allowed values), so getColumnValues reads a single column, not
-//     just whole rows.
+//     it = the allowed values). Load the tab here, then pull a single column's
+//     values with Table Tools' pluckColumn.
 //   - Reported grid size LIES (a tab can claim ~1,048,576 rows from stray
 //     formatting). We never trust the grid size for reads: requesting a tab by
 //     name returns only the POPULATED rectangle, which is the real used range.
@@ -529,134 +534,6 @@ async function loadTabs({ spreadsheetId, tabs, headerRow = 1, valueMode }) {
   return envelope({ spreadsheetId: id, tabs: out, tabCount: out.length, totalRows }, [], warnings);
 }
 
-// getColumnValues: read the values down a single named column. This is the
-// reference-data workhorse (allowed values for an attribute, a dictionary, etc).
-// Matches the column by trimmed header name (case-insensitive).
-// Input:  { spreadsheetId, tab, column, headerRow?, valueMode?, distinct?, dropEmpty? }
-// Output: { spreadsheetId, tab, column, values, count } + envelope
-async function getColumnValues({ spreadsheetId, tab, column, headerRow = 1, valueMode, distinct = false, dropEmpty = true }) {
-  const id = resolveSpreadsheetId(spreadsheetId);
-  const tabName = trimStr(tab);
-  const colName = trimStr(column);
-  const base = { spreadsheetId: id, tab: tabName, column: colName, values: [], count: 0 };
-  if (!id) return envelope(base, [issue("missing_spreadsheet_id", "spreadsheetId is required.", "spreadsheetId")]);
-  if (!tabName) return envelope(base, [issue("missing_tab", "tab is required.", "tab")]);
-  if (!colName) return envelope(base, [issue("missing_column", "column is required.", "column")]);
-
-  const { data, error } = await sheetsGet(`/${encodeURIComponent(id)}/values/${encodeURIComponent(tabRange(tabName))}`, {
-    valueRenderOption: valueRenderOption(valueMode),
-    majorDimension: "ROWS",
-  });
-  if (error) return envelope(base, [error]);
-
-  const grid = Array.isArray(data.values) ? data.values : [];
-  const headerIdx = Math.max(0, headerRow - 1);
-  const { headers, rows } = gridToRows(grid, headerIdx);
-
-  // Case-insensitive match on the trimmed header name.
-  const target = colName.toLowerCase();
-  const matchedHeader = headers.find((h) => h.toLowerCase() === target);
-  if (!matchedHeader) {
-    return envelope(base, [issue("column_not_found", `Column "${colName}" not found. Available columns: ${headers.join(", ") || "(none)"}.`, "column")]);
-  }
-
-  let values = rows.map((r) => r[matchedHeader]);
-  if (dropEmpty) values = values.filter((v) => !(v === "" || v === null || v === undefined));
-  if (distinct) {
-    const seen = new Set();
-    values = values.filter((v) => {
-      const sig = String(v);
-      if (seen.has(sig)) return false;
-      seen.add(sig);
-      return true;
-    });
-  }
-
-  return envelope({ spreadsheetId: id, tab: tabName, column: matchedHeader, values, count: values.length });
-}
-
-// lookupRows: find rows where matchColumn satisfies matchValue, optionally
-// returning only selected columns. Powers key→value mapping lookups.
-//   matchMode: "eq" (default) | "contains" | "startsWith"
-//   caseInsensitive: default true
-// Input:  { spreadsheetId, tab, matchColumn, matchValue, returnColumns?, matchMode?, caseInsensitive?, headerRow?, valueMode?, limit? }
-// Output: { spreadsheetId, tab, matchColumn, matchValue, rows, rowCount } + envelope
-async function lookupRows({ spreadsheetId, tab, matchColumn, matchValue, returnColumns, matchMode = "eq", caseInsensitive = true, headerRow = 1, valueMode, limit }) {
-  const id = resolveSpreadsheetId(spreadsheetId);
-  const tabName = trimStr(tab);
-  const colName = trimStr(matchColumn);
-  const base = { spreadsheetId: id, tab: tabName, matchColumn: colName, matchValue, rows: [], rowCount: 0 };
-  if (!id) return envelope(base, [issue("missing_spreadsheet_id", "spreadsheetId is required.", "spreadsheetId")]);
-  if (!tabName) return envelope(base, [issue("missing_tab", "tab is required.", "tab")]);
-  if (!colName) return envelope(base, [issue("missing_match_column", "matchColumn is required.", "matchColumn")]);
-  if (matchValue === undefined || matchValue === null || matchValue === "") {
-    return envelope(base, [issue("missing_match_value", "matchValue is required.", "matchValue")]);
-  }
-
-  const { data, error } = await sheetsGet(`/${encodeURIComponent(id)}/values/${encodeURIComponent(tabRange(tabName))}`, {
-    valueRenderOption: valueRenderOption(valueMode),
-    majorDimension: "ROWS",
-  });
-  if (error) return envelope(base, [error]);
-
-  const grid = Array.isArray(data.values) ? data.values : [];
-  const headerIdx = Math.max(0, headerRow - 1);
-  const { headers, rows } = gridToRows(grid, headerIdx);
-
-  const target = caseInsensitive ? colName.toLowerCase() : colName;
-  const matchedHeader = headers.find((h) => (caseInsensitive ? h.toLowerCase() : h) === target);
-  if (!matchedHeader) {
-    return envelope(base, [issue("column_not_found", `matchColumn "${colName}" not found. Available columns: ${headers.join(", ") || "(none)"}.`, "matchColumn")]);
-  }
-
-  const norm = (v) => (caseInsensitive ? String(v).toLowerCase() : String(v));
-  const needle = norm(matchValue);
-  const test = (cell) => {
-    const hay = norm(cell);
-    switch (trimStr(matchMode).toLowerCase()) {
-      case "contains": return hay.includes(needle);
-      case "startswith": return hay.startsWith(needle);
-      case "eq":
-      default: return hay === needle;
-    }
-  };
-
-  let matches = rows.filter((r) => test(r[matchedHeader]));
-
-  // Project to selected columns if requested.
-  const cols = Array.isArray(returnColumns) ? returnColumns.map(trimStr).filter(Boolean) : null;
-  const warnings = [];
-  if (cols && cols.length > 0) {
-    // Resolve requested column names against actual (trimmed, case-insensitive) headers.
-    const resolved = cols.map((c) => {
-      const t = c.toLowerCase();
-      return { requested: c, header: headers.find((h) => h.toLowerCase() === t) || null };
-    });
-    const missing = resolved.filter((r) => !r.header).map((r) => r.requested);
-    if (missing.length) warnings.push(issue("unknown_return_columns", `Ignored unknown returnColumns: ${missing.join(", ")}.`, "returnColumns"));
-    matches = matches.map((row) => {
-      const out = {};
-      resolved.forEach((r) => { if (r.header) out[r.header] = row[r.header]; });
-      return out;
-    });
-  }
-
-  const hasLimit = typeof limit === "number" && limit >= 0;
-  const limited = hasLimit ? matches.slice(0, limit) : matches;
-  if (hasLimit && matches.length > limit) {
-    warnings.push(issue("truncated", `Returned ${limited.length} of ${matches.length} matches (limit applied).`, null));
-  }
-
-  return envelope({
-    spreadsheetId: id,
-    tab: tabName,
-    matchColumn: matchedHeader,
-    matchValue,
-    rows: limited,
-    rowCount: limited.length,
-  }, [], warnings);
-}
-
 // ---------------------------------------------------------------------------
 // Write actions (OAuth — see the auth notes at the top of this file)
 // ---------------------------------------------------------------------------
@@ -775,8 +652,6 @@ export {
   describeSheet,
   loadRows,
   loadTabs,
-  getColumnValues,
-  lookupRows,
   appendRows,
   updateRange,
 };

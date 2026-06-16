@@ -16,31 +16,31 @@ Built for four jobs:
 | `describeSheet` | Inspect one tab: its real used size and its column headers. | API key |
 | `loadRows` | Load one tab (or an A1 range) as header-keyed row objects, with `limit`/`offset` paging. | API key |
 | `loadTabs` | Load several tabs in one batched call — all tabs by default. | API key |
-| `getColumnValues` | Read the values down a single named column — the reference-data workhorse. | API key |
-| `lookupRows` | Find rows where a column matches a value; optionally return only selected columns. | API key |
 | `appendRows` | **Write** — append new rows to the bottom of a tab. Safe: never overwrites. | OAuth |
 | `updateRange` | **Write** — overwrite a specific A1 range. Deliberate: replaces what's there. | OAuth |
 
 Read actions make one HTTP call; write actions make one or two (plus at most one token refresh) — all under the sandbox's 10-call cap. Read once, process in memory; don't loop these over a large catalogue in one execution.
 
+This extension is **I/O only** — it gets rows in and out. To *query or reshape* those rows (filter to matching rows, pull a single column's values, join with another tab, add a column), use the **[Table Tools](https://github.com/pippalarge/csv-tools-workforce-extension)** extension — both speak the same `rows` shape, so they chain directly.
+
 ## Example data
 
 [`examples/ecommerce-examples.xlsx`](examples/) is a dummy multi-tab workbook (the fictional retailer "AnyaFinn") covering every function — product data, taxonomy, range→category mapping, column-oriented allowed values, synonyms, and a brand dictionary. See [`examples/README.md`](examples/README.md) for which tab demonstrates which action. All data is invented.
 
-## Works with CSV Tools
+## Works together with Table Tools
 
-This extension and [CSV Tools](https://github.com/pippalarge/csv-tools-workforce-extension) are two halves of one tabular-data pipeline and share the same shape — an array of header-keyed row objects (`rows`):
+This extension and [Table Tools](https://github.com/pippalarge/csv-tools-workforce-extension) are two halves of one tabular-data pipeline, joined by a shared shape — **`rows`** (an array of header-keyed objects):
 
-- **Google Sheets Reader = I/O** — gets `rows` out of a live, business-owned sheet.
-- **CSV Tools = transforms** — pure-CPU `filterRows` / `selectColumns` / `validateRows` / `dedupeRows` / `chunkRows` / `toJson` / `arrayToCsv` over those same `rows`.
+- **Google Sheets = I/O** — gets `rows` out of (`loadRows` / `loadTabs`) and back into (`appendRows` / `updateRange`) a live, business-owned sheet.
+- **Table Tools = transforms** — `filterRows`, `sortRows`, `joinRows`, `addColumn`, `pluckColumn`, `validateRows`, … over those same `rows`.
 
-`loadRows` outputs `{ rows: [...] }`, every CSV Tools action takes and returns `{ rows: [...] }`, and `appendRows` takes `{ rows: [...] }` — so a full read → transform → write-back round-trip chains directly:
+`loadRows` outputs `{ rows: [...] }`, every Table Tools action takes/returns `{ rows: [...] }`, and `appendRows` takes `{ rows: [...] }` — so a full read → transform → write-back round-trip chains directly:
 
 ```
-loadRows (Sheets) → validateRows → filterRows → mapColumns (CSV Tools) → appendRows (Sheets write-back)
+loadRows (Sheets) → joinRows → addColumn → validateRows (Table Tools) → appendRows (Sheets write-back)
 ```
 
-Use `chunkRows` (CSV Tools) after a single `loadRows` to batch rows for per-row API steps and stay under the 10-call sandbox cap.
+Use `chunkRows` (Table Tools) after a single `loadRows` to batch rows for per-row API steps and stay under the 10-call sandbox cap.
 
 ## Auth — two models, by direction
 
@@ -63,7 +63,7 @@ Write safety: both write actions default to **RAW** input, so a value like `=SUM
 
 - **Reported tab grid sizes lie** — a tab can claim ~1,048,576 rows from stray formatting. Reads request the tab by name, so Google returns only the populated range.
 - **Headers are trimmed** — a lookup for `Neck Shape` still matches a header stored as `"Neck Shape "`.
-- **Column-oriented sheets** (each column = an attribute, cells = allowed values) are served by `getColumnValues`.
+- **Column-oriented sheets** (each column = an attribute, cells = allowed values) — `loadRows` here, then `pluckColumn` in Table Tools to get a column's values.
 - **Status envelope** — every action returns top-level `ok` / `status` / `errorCount` / `warningCount` plus `errors[]` / `warnings[]`, so a flow can branch on failures with an **Edit Rules** step (`errorCount Greater Than 0`).
 
 ## Develop

@@ -1,7 +1,7 @@
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 
-import { listTabs, describeSheet, loadRows, loadTabs, getColumnValues, lookupRows, appendRows, updateRange } from "../index.js";
+import { listTabs, describeSheet, loadRows, loadTabs, appendRows, updateRange } from "../index.js";
 
 // ---------------------------------------------------------------------------
 // Harness: stub global.fetch and process.env so the pure logic (URL building,
@@ -252,75 +252,6 @@ test("loadTabs with no tabs loads ALL tabs (metadata call + one batchGet)", asyn
 });
 
 // ---------------------------------------------------------------------------
-// getColumnValues
-// ---------------------------------------------------------------------------
-
-test("getColumnValues reads a column by trimmed, case-insensitive name", async () => {
-  nextResponse = { status: 200, body: ATTR_GRID };
-  // "neck shape" matches the trailing-spaced "Neck Shape " header.
-  const res = await getColumnValues({ spreadsheetId: "abc", tab: "S", column: "neck shape" });
-  assert.equal(res.ok, true);
-  assert.equal(res.column, "Neck Shape");
-  assert.deepEqual(res.values, ["Crew Neck", "V-Neck", "Crew Neck"]);
-});
-
-test("getColumnValues distinct drops duplicates; dropEmpty drops blanks", async () => {
-  nextResponse = { status: 200, body: ATTR_GRID };
-  const res = await getColumnValues({ spreadsheetId: "abc", tab: "S", column: "Neck Shape", distinct: true });
-  assert.deepEqual(res.values, ["Crew Neck", "V-Neck"]);
-
-  nextResponse = { status: 200, body: ATTR_GRID };
-  const withEmpty = await getColumnValues({ spreadsheetId: "abc", tab: "S", column: "Sleeve Length", dropEmpty: false });
-  assert.deepEqual(withEmpty.values, ["Long Sleeve", "Short Sleeve", ""]);
-});
-
-test("getColumnValues errors with available columns when not found", async () => {
-  nextResponse = { status: 200, body: ATTR_GRID };
-  const res = await getColumnValues({ spreadsheetId: "abc", tab: "S", column: "Colour" });
-  assert.equal(res.ok, false);
-  assert.equal(res.errors[0].code, "column_not_found");
-  assert.ok(res.errors[0].message.includes("Product Type"));
-});
-
-// ---------------------------------------------------------------------------
-// lookupRows
-// ---------------------------------------------------------------------------
-
-test("lookupRows returns whole matching rows by default (eq)", async () => {
-  nextResponse = { status: 200, body: ATTR_GRID };
-  const res = await lookupRows({ spreadsheetId: "abc", tab: "S", matchColumn: "Product Type", matchValue: "Dress" });
-  assert.equal(res.ok, true);
-  assert.equal(res.rowCount, 2);
-  assert.equal(res.rows[0]["Neck Shape"], "Crew Neck");
-});
-
-test("lookupRows projects to returnColumns and warns on unknown ones", async () => {
-  nextResponse = { status: 200, body: ATTR_GRID };
-  const res = await lookupRows({
-    spreadsheetId: "abc",
-    tab: "S",
-    matchColumn: "Product Type",
-    matchValue: "Dress",
-    returnColumns: ["Neck Shape", "Nonexistent"],
-  });
-  assert.equal(res.rowCount, 2);
-  assert.deepEqual(Object.keys(res.rows[0]), ["Neck Shape"]);
-  assert.equal(res.warningCount, 1);
-  assert.equal(res.warnings[0].code, "unknown_return_columns");
-});
-
-test("lookupRows contains mode + case sensitivity", async () => {
-  nextResponse = { status: 200, body: ATTR_GRID };
-  const res = await lookupRows({ spreadsheetId: "abc", tab: "S", matchColumn: "Neck Shape", matchValue: "neck", matchMode: "contains" });
-  assert.equal(res.rowCount, 3); // all three contain "neck" case-insensitively
-});
-
-test("lookupRows requires a match value", async () => {
-  const res = await lookupRows({ spreadsheetId: "abc", tab: "S", matchColumn: "Product Type", matchValue: "" });
-  assert.equal(res.errors[0].code, "missing_match_value");
-});
-
-// ---------------------------------------------------------------------------
 // HTTP error mapping
 // ---------------------------------------------------------------------------
 
@@ -341,7 +272,7 @@ test("404 maps to spreadsheet_not_found pointing at spreadsheetId", async () => 
 
 test("429 maps to rate_limited", async () => {
   nextResponse = { status: 429, body: {} };
-  const res = await getColumnValues({ spreadsheetId: "abc", tab: "S", column: "Product Type" });
+  const res = await loadRows({ spreadsheetId: "abc", tab: "S" });
   assert.equal(res.errors[0].code, "rate_limited");
 });
 

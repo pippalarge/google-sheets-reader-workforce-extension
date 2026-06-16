@@ -1,6 +1,6 @@
 {
   "label": "Google Sheets",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "docsUrl": "https://github.com/pippalarge/google-sheets-reader-workforce-extension",
   "descriptionFile": "description.md",
   "iconFile": "icon-base64.txt"
