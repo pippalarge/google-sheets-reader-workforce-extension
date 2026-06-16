@@ -1,7 +1,7 @@
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 
-import { listTabs, describeSheet, readRows, getColumnValues, lookupRows } from "../index.js";
+import { listTabs, describeSheet, readRows, getColumnValues, lookupRows, appendRows, updateRange } from "../index.js";
 
 // ---------------------------------------------------------------------------
 // Harness: stub global.fetch and process.env so the pure logic (URL building,
@@ -14,14 +14,19 @@ let nextResponse; // function(url) -> { status, body } | a fixed { status, body 
 
 function textResponse(status, body) {
   const text = typeof body === "string" ? body : JSON.stringify(body);
-  return { ok: status >= 200 && status < 300, status, text: async () => text };
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    text: async () => text,
+    json: async () => (typeof body === "string" ? JSON.parse(body) : body),
+  };
 }
 
 function installFetch() {
   fetchCalls = [];
   globalThis.fetch = async (url, opts = {}) => {
     fetchCalls.push({ url, opts });
-    const r = typeof nextResponse === "function" ? nextResponse(url) : nextResponse;
+    const r = typeof nextResponse === "function" ? nextResponse(url, opts) : nextResponse;
     return textResponse(r.status, r.body);
   };
 }
@@ -289,4 +294,160 @@ test("429 maps to rate_limited", async () => {
   nextResponse = { status: 429, body: {} };
   const res = await getColumnValues({ spreadsheetId: "abc", tab: "S", column: "Product Type" });
   assert.equal(res.errors[0].code, "rate_limited");
+});
+
+// ---------------------------------------------------------------------------
+// Write actions: appendRows / updateRange
+// ---------------------------------------------------------------------------
+
+// Helper to read the JSON body a write request sent.
+function bodyOf(call) {
+  return JSON.parse(call.opts.body);
+}
+
+test("appendRows without credentials surfaces missing_credentials, no network", async () => {
+  // Only the read API key is set; writing needs OAuth.
+  const res = await appendRows({ spreadsheetId: "abc", tab: "Products", rows: [{ SKU: "X" }] });
+  assert.equal(res.ok, false);
+  assert.equal(res.errors[0].code, "missing_credentials");
+  assert.equal(fetchCalls.length, 0);
+});
+
+test("appendRows requires a non-empty rows array", async () => {
+  process.env.GOOGLE_ACCESS_TOKEN = "T";
+  const res = await appendRows({ spreadsheetId: "abc", tab: "Products", rows: [] });
+  assert.equal(res.errors[0].code, "no_rows");
+  delete process.env.GOOGLE_ACCESS_TOKEN;
+});
+
+test("appendRows reads the header, aligns columns, appends in header order (RAW default)", async () => {
+  process.env.GOOGLE_ACCESS_TOKEN = "T";
+  nextResponse = (url, opts) => {
+    if (opts.method === "POST" && url.includes(":append")) {
+      return { status: 200, body: { updates: { updatedRange: "Products!A5:C5", updatedRows: 1 } } };
+    }
+    // header read (GET ...!1:1)
+    return { status: 200, body: { values: [["SKU", "Title", "Price"]] } };
+  };
+  const res = await appendRows({
+    spreadsheetId: "abc",
+    tab: "Products",
+    rows: [{ Title: "Tee", SKU: "AF-1", Price: 18 }], // deliberately out of order, no all-columns
+  });
+  assert.equal(res.ok, true);
+  assert.equal(res.appendedRows, 1);
+  assert.deepEqual(res.columns, ["SKU", "Title", "Price"]);
+
+  // Two calls: header GET then append POST.
+  assert.equal(fetchCalls.length, 2);
+  const appendCall = fetchCalls.find((c) => c.opts.method === "POST");
+  assert.ok(appendCall.url.includes("valueInputOption=RAW"), appendCall.url);
+  assert.ok(appendCall.url.includes("insertDataOption=INSERT_ROWS"));
+  assert.ok(appendCall.opts.headers.Authorization === "Bearer T");
+  // Values aligned to header order, missing -> "".
+  assert.deepEqual(bodyOf(appendCall), { values: [["AF-1", "Tee", 18]] });
+  delete process.env.GOOGLE_ACCESS_TOKEN;
+});
+
+test("appendRows with explicit columns skips the header read (single call)", async () => {
+  process.env.GOOGLE_ACCESS_TOKEN = "T";
+  nextResponse = { status: 200, body: { updates: { updatedRange: "Products!A2:B2", updatedRows: 1 } } };
+  const res = await appendRows({
+    spreadsheetId: "abc",
+    tab: "Products",
+    columns: ["SKU", "Title"],
+    rows: [{ SKU: "AF-2", Title: "Shirt", Extra: "ignored" }],
+    valueMode: "user",
+  });
+  assert.equal(res.ok, true);
+  assert.equal(fetchCalls.length, 1);
+  const call = fetchCalls[0];
+  assert.ok(call.url.includes(":append"));
+  assert.ok(call.url.includes("valueInputOption=USER_ENTERED"), call.url);
+  assert.deepEqual(bodyOf(call), { values: [["AF-2", "Shirt"]] });
+  delete process.env.GOOGLE_ACCESS_TOKEN;
+});
+
+test("appendRows obtains a token via the refresh-token flow when no access token", async () => {
+  process.env.GOOGLE_CLIENT_ID = "cid";
+  process.env.GOOGLE_CLIENT_SECRET = "secret";
+  process.env.GOOGLE_REFRESH_TOKEN = "refresh";
+  nextResponse = (url, opts) => {
+    if (url.includes("oauth2.googleapis.com/token")) return { status: 200, body: { access_token: "FRESH" } };
+    if (opts.method === "POST" && url.includes(":append")) return { status: 200, body: { updates: { updatedRows: 1 } } };
+    return { status: 200, body: { values: [["SKU"]] } };
+  };
+  const res = await appendRows({ spreadsheetId: "abc", tab: "Products", rows: [{ SKU: "AF-3" }] });
+  assert.equal(res.ok, true);
+  // token exchange happened, and the append used the fresh token.
+  assert.ok(fetchCalls.some((c) => c.url.includes("oauth2.googleapis.com/token")));
+  const appendCall = fetchCalls.find((c) => c.opts.method === "POST" && c.url.includes(":append"));
+  assert.equal(appendCall.opts.headers.Authorization, "Bearer FRESH");
+  delete process.env.GOOGLE_CLIENT_ID;
+  delete process.env.GOOGLE_CLIENT_SECRET;
+  delete process.env.GOOGLE_REFRESH_TOKEN;
+});
+
+test("write 403 maps to access_denied with the OAuth/edit-access message", async () => {
+  process.env.GOOGLE_ACCESS_TOKEN = "T";
+  nextResponse = (url, opts) => {
+    if (opts.method === "POST") return { status: 403, body: {} };
+    return { status: 200, body: { values: [["SKU"]] } };
+  };
+  const res = await appendRows({ spreadsheetId: "abc", tab: "Products", columns: ["SKU"], rows: [{ SKU: "X" }] });
+  assert.equal(res.ok, false);
+  assert.equal(res.errors[0].code, "access_denied");
+  assert.ok(res.errors[0].message.includes("edit access"));
+  delete process.env.GOOGLE_ACCESS_TOKEN;
+});
+
+test("updateRange writes a 2D values array to a PUT at the range", async () => {
+  process.env.GOOGLE_ACCESS_TOKEN = "T";
+  nextResponse = { status: 200, body: { updatedCells: 4, updatedRows: 2, updatedRange: "Sheet1!A2:B3" } };
+  const res = await updateRange({
+    spreadsheetId: "abc",
+    tab: "Sheet1",
+    range: "A2:B3",
+    values: [["a", "b"], ["c", "d"]],
+  });
+  assert.equal(res.ok, true);
+  assert.equal(res.updatedCells, 4);
+  const call = fetchCalls[0];
+  assert.equal(call.opts.method, "PUT");
+  assert.ok(decodeURIComponent(call.url).includes("'Sheet1'!A2:B3"), call.url);
+  assert.ok(call.url.includes("valueInputOption=RAW"));
+  assert.deepEqual(bodyOf(call), { values: [["a", "b"], ["c", "d"]] });
+  delete process.env.GOOGLE_ACCESS_TOKEN;
+});
+
+test("updateRange builds values from rows + columns", async () => {
+  process.env.GOOGLE_ACCESS_TOKEN = "T";
+  nextResponse = { status: 200, body: { updatedCells: 2 } };
+  const res = await updateRange({
+    spreadsheetId: "abc",
+    tab: "Sheet1",
+    range: "A2:B2",
+    rows: [{ SKU: "AF-9", Title: "Hat" }],
+    columns: ["SKU", "Title"],
+  });
+  assert.equal(res.ok, true);
+  assert.deepEqual(bodyOf(fetchCalls[0]), { values: [["AF-9", "Hat"]] });
+  delete process.env.GOOGLE_ACCESS_TOKEN;
+});
+
+test("updateRange requires a range and some values", async () => {
+  process.env.GOOGLE_ACCESS_TOKEN = "T";
+  const noRange = await updateRange({ spreadsheetId: "abc", tab: "Sheet1", values: [["a"]] });
+  assert.equal(noRange.errors[0].code, "missing_range");
+  const noValues = await updateRange({ spreadsheetId: "abc", tab: "Sheet1", range: "A1" });
+  assert.equal(noValues.errors[0].code, "no_values");
+  assert.equal(fetchCalls.length, 0);
+  delete process.env.GOOGLE_ACCESS_TOKEN;
+});
+
+test("updateRange writing rows without columns errors", async () => {
+  process.env.GOOGLE_ACCESS_TOKEN = "T";
+  const res = await updateRange({ spreadsheetId: "abc", tab: "Sheet1", range: "A1:B1", rows: [{ a: 1 }] });
+  assert.equal(res.errors[0].code, "missing_columns");
+  delete process.env.GOOGLE_ACCESS_TOKEN;
 });

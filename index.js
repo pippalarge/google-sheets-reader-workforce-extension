@@ -1,16 +1,32 @@
-// Amplience Workforce extension — Google Sheets Reader (read-only, v1a)
+// Amplience Workforce extension — Google Sheets (read + write)
 //
-// Reads data OUT of a Google Sheet so it can be used inside a Workforce flow or
-// as a tool by an agent. Read-only on purpose: a sheet that is shared as
-// "anyone with the link can view" can be read with just an API key — no service
-// account, no OAuth, no per-user login. Writing back to a sheet would require a
-// service account; that is intentionally OUT of scope for this version.
+// Reads data OUT of a Google Sheet and (v1b) writes data BACK to one, so a
+// Workforce flow or an agent can use a sheet as both a source and a sink.
 //
-// USE CASES this serves (all read):
+// TWO AUTH MODELS, by direction (this is the key thing to understand):
+//   - READ  (listTabs, describeSheet, readRows, getColumnValues, lookupRows):
+//     a Google API key (GOOGLE_API_KEY) used as ?key=... This works ONLY on
+//     sheets shared as "anyone with the link can view" — no login needed.
+//   - WRITE (appendRows, updateRange): an API key CANNOT write. Writing needs
+//     OAuth credentials with the spreadsheets scope and edit access to the
+//     sheet — either a pre-obtained GOOGLE_ACCESS_TOKEN, or the refresh-token
+//     flow (GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET + GOOGLE_REFRESH_TOKEN).
+//     Service-account JWT (RS256) signing is intentionally NOT used — it isn't
+//     reliably available in the Min Common Web Platform sandbox; the
+//     refresh-token flow needs no signing and runs unattended.
+//
+// USE CASES this serves:
 //   - reference data ....... a product taxonomy, a dictionary of allowed words,
-//                            a set of rules (the column-lookup workhorse)
-//   - flow inputs .......... rows of data fed into a flow
-//   - eval data ............ a table of test cases for a flow or action
+//                            a set of rules (the column-lookup workhorse) [read]
+//   - flow inputs .......... rows of data fed into a flow                  [read]
+//   - eval data ............ a table of test cases for a flow or action    [read]
+//   - flow outputs ......... enriched/generated rows written back          [write]
+//
+// WRITE GUARDRAILS: writes default to RAW input (a cell value like "=SUM(...)"
+// is stored as literal text, never executed — this blocks formula injection).
+// appendRows is the safe default (it only adds new rows). updateRange overwrites
+// a caller-specified range, so it is the "be deliberate" action. The extension
+// writes exactly the values it is given; it never invents data.
 //
 // DESIGN NOTES (from looking at real, messy merchandising spreadsheets):
 //   - Tabs are first-class. The tab name is often itself a lookup/join key, so
@@ -24,12 +40,11 @@
 //   - Headers often carry trailing spaces ("Stitching "). We trim header names
 //     so lookups by clean column name still match.
 //
-// SANDBOX: each action makes at most ONE HTTP call to Google — well under the
-// 10-own-HTTP-calls cap. Do not loop these over a large catalogue inside one
-// execution; read once and process in memory, or page with limit/offset.
-//
-// AUTH: a Google API key (env GOOGLE_API_KEY), used as ?key=... — this only
-// works against publicly-viewable sheets, which is exactly the v1a scope.
+// SANDBOX: read actions make ONE HTTP call; write actions make one or two
+// (appendRows reads the header row to align columns unless `columns` is given),
+// plus at most one token refresh — all well under the 10-own-HTTP-calls cap. Do
+// not loop these over a large catalogue inside one execution; read once and
+// process in memory, page with limit/offset, or write in batches.
 //
 // ERROR-HANDLING CONTRACT: every action returns a uniform status envelope
 // alongside its payload:
@@ -48,6 +63,16 @@
 // ---------------------------------------------------------------------------
 
 const SHEETS_API_BASE = "https://sheets.googleapis.com/v4/spreadsheets";
+const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
+
+// How a written value is interpreted by Google. RAW (default) stores the value
+// literally — a string starting with "=" stays text, blocking formula injection.
+// USER_ENTERED parses values as if a person typed them (numbers, dates, formulas).
+const VALUE_INPUT_MODES = {
+  raw: "RAW",
+  user: "USER_ENTERED",
+  user_entered: "USER_ENTERED",
+};
 
 // Accepted value-render modes mapped to the Sheets API valueRenderOption.
 //   formatted   -> FORMATTED_VALUE   (human-readable: "$1.23", dates as text) [default]
@@ -106,18 +131,34 @@ function valueRenderOption(valueMode) {
   return VALUE_MODES[key] || VALUE_MODES.formatted;
 }
 
-// Map an HTTP failure to a standard issue. 403 is the common "sheet isn't
-// public / key not enabled" case, which deserves a clear, actionable message.
-function httpErrorIssue(status, bodyText) {
+// Normalise a value-input mode to a valueInputOption; default RAW (safe).
+function valueInputOption(mode) {
+  const key = trimStr(mode).toLowerCase();
+  return VALUE_INPUT_MODES[key] || VALUE_INPUT_MODES.raw;
+}
+
+// Map an HTTP failure to a standard issue. The 401/403 messages differ for
+// reads (API key on a public sheet) vs writes (OAuth + edit access), so the
+// caller passes { write: true } for write requests.
+function httpErrorIssue(status, bodyText, opts = {}) {
+  const write = !!opts.write;
   if (status === 403) {
     return issue(
       "access_denied",
-      "Google denied access (HTTP 403). The sheet must be shared as \"anyone with the link can view\", and the Google Sheets API must be enabled for the API key.",
+      write
+        ? "Google denied the write (HTTP 403). The OAuth credentials need the spreadsheets scope and edit access to this sheet."
+        : "Google denied access (HTTP 403). The sheet must be shared as \"anyone with the link can view\", and the Google Sheets API must be enabled for the API key.",
       null
     );
   }
   if (status === 401) {
-    return issue("auth_failed", "Google rejected the API key (HTTP 401). Check GOOGLE_API_KEY.", null);
+    return issue(
+      "auth_failed",
+      write
+        ? "Google rejected the OAuth credentials (HTTP 401). Check the access/refresh token and the spreadsheets scope."
+        : "Google rejected the API key (HTTP 401). Check GOOGLE_API_KEY.",
+      null
+    );
   }
   if (status === 404) {
     return issue("spreadsheet_not_found", "Spreadsheet not found (HTTP 404). Check the spreadsheet id/URL.", "spreadsheetId");
@@ -168,6 +209,104 @@ async function sheetsGet(path, params) {
     return { error: issue("bad_response", "Google returned a response that could not be parsed as JSON.", null) };
   }
   return { data };
+}
+
+// Obtain an OAuth2 access token for WRITE requests. Returns { token } or
+// { error }. Either a pre-obtained GOOGLE_ACCESS_TOKEN, or the refresh-token
+// flow (no RS256 signing needed, so it works in the sandbox). Never throws.
+async function getAccessToken() {
+  const preObtained = env("GOOGLE_ACCESS_TOKEN");
+  if (preObtained) return { token: preObtained };
+
+  const clientId = env("GOOGLE_CLIENT_ID");
+  const clientSecret = env("GOOGLE_CLIENT_SECRET");
+  const refreshToken = env("GOOGLE_REFRESH_TOKEN");
+  if (!clientId || !clientSecret || !refreshToken) {
+    return {
+      error: issue(
+        "missing_credentials",
+        "Writing needs OAuth credentials (an API key cannot write). Set GOOGLE_ACCESS_TOKEN, or GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET + GOOGLE_REFRESH_TOKEN with the spreadsheets scope.",
+        null
+      ),
+    };
+  }
+
+  const body = new URLSearchParams({
+    grant_type: "refresh_token",
+    client_id: clientId,
+    client_secret: clientSecret,
+    refresh_token: refreshToken,
+  });
+
+  let resp;
+  try {
+    resp = await fetch(TOKEN_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    });
+  } catch (e) {
+    return { error: issue("token_unreachable", `Could not reach Google's token endpoint: ${e && e.message ? e.message : e}.`, null) };
+  }
+
+  let data = null;
+  try {
+    data = await resp.json();
+  } catch (_) {
+    /* fall through */
+  }
+  if (!resp.ok || !data || !data.access_token) {
+    const detail = data && (data.error_description || data.error) ? `: ${data.error_description || data.error}` : "";
+    return { error: issue("auth_failed", `Token exchange failed (HTTP ${resp.status})${detail}.`, null) };
+  }
+  return { token: data.access_token };
+}
+
+// Perform an authenticated (bearer-token) request against the Sheets API for
+// reads done as part of a write, and for the writes themselves. Returns
+// { data } or { error }. Never throws for an expected HTTP problem.
+async function sheetsAuthed(method, path, token, params, bodyObj) {
+  const qs = new URLSearchParams(params || {});
+  const url = `${SHEETS_API_BASE}${path}?${qs.toString()}`;
+  const headers = { Authorization: `Bearer ${token}` };
+  if (bodyObj !== undefined) headers["Content-Type"] = "application/json";
+
+  let resp;
+  try {
+    resp = await fetch(url, { method, headers, body: bodyObj !== undefined ? JSON.stringify(bodyObj) : undefined });
+  } catch (e) {
+    return { error: issue("api_unreachable", `Could not reach the Google Sheets API: ${e && e.message ? e.message : e}.`, null) };
+  }
+
+  let bodyText = "";
+  try {
+    bodyText = await resp.text();
+  } catch (_) {
+    /* ignore */
+  }
+
+  if (!resp.ok) {
+    return { error: httpErrorIssue(resp.status, bodyText, { write: method !== "GET" }) };
+  }
+
+  let data = null;
+  try {
+    data = bodyText ? JSON.parse(bodyText) : {};
+  } catch (e) {
+    return { error: issue("bad_response", "Google returned a response that could not be parsed as JSON.", null) };
+  }
+  return { data };
+}
+
+// Build a 2D values array from row objects in a fixed column order.
+// Missing/blank keys become "" so every row is the same width.
+function rowsToValues(rows, columns) {
+  return rows.map((row) =>
+    columns.map((col) => {
+      const v = row ? row[col] : undefined;
+      return v === undefined || v === null ? "" : v;
+    })
+  );
 }
 
 // Build the A1 range segment for a whole tab. Requesting a tab by name returns
@@ -461,10 +600,125 @@ async function lookupRows({ spreadsheetId, tab, matchColumn, matchValue, returnC
   }, [], warnings);
 }
 
+// ---------------------------------------------------------------------------
+// Write actions (OAuth — see the auth notes at the top of this file)
+// ---------------------------------------------------------------------------
+
+// appendRows: add new rows to the bottom of a tab. The SAFE write — it never
+// overwrites existing data. Row objects are aligned to the sheet's columns:
+// if `columns` is given it sets the order; otherwise the tab's header row is
+// read and used. Defaults to RAW input (values stored literally).
+// Input:  { spreadsheetId, tab, rows, columns?, valueMode? }
+// Output: { spreadsheetId, tab, appendedRows, updatedRange, columns } + envelope
+async function appendRows({ spreadsheetId, tab, rows, columns, valueMode }) {
+  const id = resolveSpreadsheetId(spreadsheetId);
+  const tabName = trimStr(tab);
+  const base = { spreadsheetId: id, tab: tabName, appendedRows: 0, updatedRange: "", columns: [] };
+  if (!id) return envelope(base, [issue("missing_spreadsheet_id", "spreadsheetId is required.", "spreadsheetId")]);
+  if (!tabName) return envelope(base, [issue("missing_tab", "tab is required.", "tab")]);
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return envelope(base, [issue("no_rows", "rows is required and must be a non-empty array of objects.", "rows")]);
+  }
+
+  const auth = await getAccessToken();
+  if (auth.error) return envelope(base, [auth.error]);
+
+  const warnings = [];
+  let cols = Array.isArray(columns) && columns.length ? columns.map(trimStr).filter(Boolean) : null;
+
+  // No explicit columns: align to the tab's header row (read with the same token).
+  if (!cols) {
+    const headerRes = await sheetsAuthed("GET", `/${encodeURIComponent(id)}/values/${encodeURIComponent(tabRange(tabName, "1:1"))}`, auth.token, { majorDimension: "ROWS" });
+    if (headerRes.error) return envelope(base, [headerRes.error]);
+    const headerGrid = Array.isArray(headerRes.data.values) ? headerRes.data.values : [];
+    const header = (headerGrid[0] || []).map((h) => trimStr(typeof h === "string" ? h : (h === null || h === undefined ? "" : String(h))));
+    if (header.length) cols = header;
+  }
+
+  // Still nothing (empty sheet, no columns given): fall back to the row keys.
+  if (!cols) {
+    const seen = new Set();
+    cols = [];
+    for (const r of rows) for (const k of Object.keys(r || {})) if (!seen.has(k)) { seen.add(k); cols.push(k); }
+    warnings.push(issue("no_header", "No header row found and no columns given; used the row object's keys as the column order.", "tab"));
+  }
+
+  const values = rowsToValues(rows, cols);
+  const writeRes = await sheetsAuthed(
+    "POST",
+    `/${encodeURIComponent(id)}/values/${encodeURIComponent(tabRange(tabName))}:append`,
+    auth.token,
+    { valueInputOption: valueInputOption(valueMode), insertDataOption: "INSERT_ROWS" },
+    { values }
+  );
+  if (writeRes.error) return envelope(base, [writeRes.error]);
+
+  const updates = (writeRes.data && writeRes.data.updates) || {};
+  return envelope({
+    spreadsheetId: id,
+    tab: tabName,
+    appendedRows: updates.updatedRows || 0,
+    updatedRange: updates.updatedRange || "",
+    columns: cols,
+  }, [], warnings);
+}
+
+// updateRange: overwrite a specific A1 range in a tab. The DELIBERATE write —
+// it replaces whatever is there (and will overwrite formulas), so it targets a
+// caller-owned range. Provide either `values` (a 2D array) or `rows` + `columns`
+// (which are turned into a 2D array). Defaults to RAW input.
+// Input:  { spreadsheetId, tab, range, values?, rows?, columns?, valueMode? }
+// Output: { spreadsheetId, tab, range, updatedCells, updatedRows, updatedRange } + envelope
+async function updateRange({ spreadsheetId, tab, range, values, rows, columns, valueMode }) {
+  const id = resolveSpreadsheetId(spreadsheetId);
+  const tabName = trimStr(tab);
+  const a1 = trimStr(range);
+  const base = { spreadsheetId: id, tab: tabName, range: a1, updatedCells: 0, updatedRows: 0, updatedRange: "" };
+  if (!id) return envelope(base, [issue("missing_spreadsheet_id", "spreadsheetId is required.", "spreadsheetId")]);
+  if (!tabName) return envelope(base, [issue("missing_tab", "tab is required.", "tab")]);
+  if (!a1) return envelope(base, [issue("missing_range", "range (an A1 range within the tab, e.g. A2:D10) is required.", "range")]);
+
+  // Resolve the grid of values.
+  let grid = null;
+  if (Array.isArray(values) && values.length && Array.isArray(values[0])) {
+    grid = values;
+  } else if (Array.isArray(rows) && rows.length) {
+    const cols = Array.isArray(columns) && columns.length ? columns.map(trimStr).filter(Boolean) : null;
+    if (!cols) return envelope(base, [issue("missing_columns", "When writing rows, columns is required to fix the column order.", "columns")]);
+    grid = rowsToValues(rows, cols);
+  } else {
+    return envelope(base, [issue("no_values", "Provide either values (a 2D array) or rows + columns.", "values")]);
+  }
+
+  const auth = await getAccessToken();
+  if (auth.error) return envelope(base, [auth.error]);
+
+  const writeRes = await sheetsAuthed(
+    "PUT",
+    `/${encodeURIComponent(id)}/values/${encodeURIComponent(tabRange(tabName, a1))}`,
+    auth.token,
+    { valueInputOption: valueInputOption(valueMode) },
+    { values: grid }
+  );
+  if (writeRes.error) return envelope(base, [writeRes.error]);
+
+  const d = writeRes.data || {};
+  return envelope({
+    spreadsheetId: id,
+    tab: tabName,
+    range: a1,
+    updatedCells: d.updatedCells || 0,
+    updatedRows: d.updatedRows || 0,
+    updatedRange: d.updatedRange || "",
+  });
+}
+
 export {
   listTabs,
   describeSheet,
   readRows,
   getColumnValues,
   lookupRows,
+  appendRows,
+  updateRange,
 };

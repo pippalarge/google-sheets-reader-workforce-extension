@@ -1,12 +1,13 @@
-# Google Sheets Reader
+# Google Sheets
 
-Read data **out of a Google Sheet** so it can be used inside a Workforce flow or as a tool by an agent.
+Read data **out of a Google Sheet** and write data **back into one**, inside a Workforce flow or as a tool by an agent.
 
-Built for three jobs:
+Built for four jobs:
 
-- **Reference data** — look up a product taxonomy, a dictionary of allowed words, or a set of rules.
-- **Flow inputs** — pull rows of data into a flow.
-- **Eval data** — read a table of test cases for a flow or action.
+- **Reference data** — look up a product taxonomy, a dictionary of allowed words, or a set of rules. *(read)*
+- **Flow inputs** — pull rows of data into a flow. *(read)*
+- **Eval data** — read a table of test cases for a flow or action. *(read)*
+- **Flow outputs** — write enriched/generated rows back to a sheet. *(write)*
 
 ## Actions
 
@@ -15,16 +16,20 @@ Built for three jobs:
 - **Read Rows** — read a tab (or an A1 range) as header-keyed row objects, with paging.
 - **Get Column Values** — read the values down a single named column (the reference-data workhorse).
 - **Lookup Rows** — find rows where a column matches a value, optionally returning selected columns.
+- **Append Rows** *(write)* — add new rows to the bottom of a tab. Safe: never overwrites.
+- **Update Range** *(write)* — overwrite a specific A1 range. Deliberate: replaces what's there.
 
 ## Setup
 
-This version is **read-only**. It reads sheets shared as **"anyone with the link can view"** using a Google API key — no service account or login needed.
+**Reads** use a Google **API key** against sheets shared as "anyone with the link can view" — no login.
 
 1. In Google Cloud, create an **API key** and enable the **Google Sheets API** for it.
 2. Set `GOOGLE_API_KEY` on the extension instance.
-3. Make sure each sheet you want to read is shared as "anyone with the link can view".
+3. Share each sheet you want to read as "anyone with the link can view".
 
-> Confidential data should **not** be put in a publicly-viewable sheet. Writing back to a sheet is intentionally out of scope here — that would require a service account.
+> Confidential data should **not** be put in a publicly-viewable sheet.
+
+**Writes** can't use an API key — they need **OAuth** credentials with the `spreadsheets` scope and edit access: set `GOOGLE_ACCESS_TOKEN`, or `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` + `GOOGLE_REFRESH_TOKEN`. Writes default to RAW input so cell values are stored literally (no formula injection).
 
 ## Notes
 

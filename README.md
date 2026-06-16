@@ -1,23 +1,26 @@
-# Google Sheets Reader — Amplience Workforce extension
+# Google Sheets — Amplience Workforce extension
 
-Read data **out of a Google Sheet** so it can be used inside a Workforce flow or as a tool by an agent. Read-only (v1a).
+Read data **out of a Google Sheet** and write data **back into one**, so a Workforce flow or an agent can use a sheet as both a source and a sink.
 
-Built for three jobs:
-- **Reference data** — a product taxonomy, a dictionary of allowed words, a set of rules.
-- **Flow inputs** — rows of data fed into a flow.
-- **Eval data** — a table of test cases for a flow or action.
+Built for four jobs:
+- **Reference data** — a product taxonomy, a dictionary of allowed words, a set of rules. *(read)*
+- **Flow inputs** — rows of data fed into a flow. *(read)*
+- **Eval data** — a table of test cases for a flow or action. *(read)*
+- **Flow outputs** — enriched/generated rows written back. *(write)*
 
 ## Actions
 
-| Action | What it does |
-| --- | --- |
-| `listTabs` | List every tab in a sheet (the tab name is often itself a lookup key). |
-| `describeSheet` | Inspect one tab: its real used size and its column headers. |
-| `readRows` | Read a tab (or an A1 range) as header-keyed row objects, with `limit`/`offset` paging. |
-| `getColumnValues` | Read the values down a single named column — the reference-data workhorse. |
-| `lookupRows` | Find rows where a column matches a value; optionally return only selected columns. |
+| Action | What it does | Auth |
+| --- | --- | --- |
+| `listTabs` | List every tab in a sheet (the tab name is often itself a lookup key). | API key |
+| `describeSheet` | Inspect one tab: its real used size and its column headers. | API key |
+| `readRows` | Read a tab (or an A1 range) as header-keyed row objects, with `limit`/`offset` paging. | API key |
+| `getColumnValues` | Read the values down a single named column — the reference-data workhorse. | API key |
+| `lookupRows` | Find rows where a column matches a value; optionally return only selected columns. | API key |
+| `appendRows` | **Write** — append new rows to the bottom of a tab. Safe: never overwrites. | OAuth |
+| `updateRange` | **Write** — overwrite a specific A1 range. Deliberate: replaces what's there. | OAuth |
 
-Each action makes at most **one** HTTP call to Google — well under the sandbox's 10-call cap. Read once, process in memory; don't loop these over a large catalogue in one execution.
+Read actions make one HTTP call; write actions make one or two (plus at most one token refresh) — all under the sandbox's 10-call cap. Read once, process in memory; don't loop these over a large catalogue in one execution.
 
 ## Example data
 
@@ -30,23 +33,30 @@ This extension and [CSV Tools](https://github.com/pippalarge/csv-tools-workforce
 - **Google Sheets Reader = I/O** — gets `rows` out of a live, business-owned sheet.
 - **CSV Tools = transforms** — pure-CPU `filterRows` / `selectColumns` / `validateRows` / `dedupeRows` / `chunkRows` / `toJson` / `arrayToCsv` over those same `rows`.
 
-`readRows` outputs `{ rows: [...] }` and every CSV Tools action takes `{ rows: [...] }`, so they chain directly:
+`readRows` outputs `{ rows: [...] }`, every CSV Tools action takes and returns `{ rows: [...] }`, and `appendRows` takes `{ rows: [...] }` — so a full read → transform → write-back round-trip chains directly:
 
 ```
-readRows (Sheets) → validateRows → filterRows → selectColumns → toJson / arrayToCsv → downstream
+readRows (Sheets) → validateRows → filterRows → mapColumns (CSV Tools) → appendRows (Sheets write-back)
 ```
 
 Use `chunkRows` (CSV Tools) after a single `readRows` to batch rows for per-row API steps and stay under the 10-call sandbox cap.
 
-## Auth (read-only via API key)
+## Auth — two models, by direction
 
-This version reads sheets shared as **"anyone with the link can view"** using a Google API key — no service account, no OAuth, no login.
+**Reading** uses a Google **API key** against sheets shared as "anyone with the link can view" — no login.
 
 1. In Google Cloud, create an **API key** and enable the **Google Sheets API** for it.
 2. Set `GOOGLE_API_KEY` on the extension instance.
 3. Share each sheet you want to read as "anyone with the link can view".
 
-> Don't put confidential data in a publicly-viewable sheet. **Writing** back to a sheet is intentionally out of scope here — that needs a service account (a possible future v1b).
+> Don't put confidential data in a publicly-viewable sheet.
+
+**Writing** can't use an API key — it needs **OAuth** credentials with the `spreadsheets` scope and edit access to the sheet. Set either:
+
+- `GOOGLE_ACCESS_TOKEN` — a pre-obtained access token, or
+- `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` + `GOOGLE_REFRESH_TOKEN` — the refresh-token flow (runs unattended; no service-account key-signing needed, which the sandbox can't do reliably).
+
+Write safety: both write actions default to **RAW** input, so a value like `=SUM(...)` is stored as literal text, never executed (blocks formula injection). `appendRows` only adds rows; `updateRange` overwrites the range you give it — so point it at a range you own.
 
 ## Design notes (from real, messy spreadsheets)
 
@@ -72,4 +82,4 @@ Extension (container) → Release (a version, holds the code) → Instance (rele
 
 Automated: `node install.mjs hubs` (proves auth, lists hubs) → `node install.mjs install --hub <id>` (creates a draft release; add `--publish` to publish). Credentials go in a git-ignored `.env` as `AMP_TOKEN=<pat>`.
 
-Or via the Workforce UI: **Integrations → Create extension**, create a release (upload `manifest.json`, paste `index.js`), then install on the hub and set `GOOGLE_API_KEY`. Releases are immutable — to update, publish a new release.
+Or via the Workforce UI: **Integrations → Create extension**, create a release (upload `manifest.json`, paste `index.js`), then install on the hub and set `GOOGLE_API_KEY` (reads) and/or the OAuth vars (writes). Releases are immutable — to update, publish a new release.

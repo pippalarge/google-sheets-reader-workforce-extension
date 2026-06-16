@@ -4,8 +4,28 @@
     "properties": {
       "GOOGLE_API_KEY": {
         "type": "string",
-        "title": "Google API key",
-        "description": "A Google API key with the Google Sheets API enabled. Only works against sheets shared as \"anyone with the link can view\"."
+        "title": "Google API key (reads)",
+        "description": "A Google API key with the Google Sheets API enabled. Used for the READ actions. Only works against sheets shared as \"anyone with the link can view\"."
+      },
+      "GOOGLE_ACCESS_TOKEN": {
+        "type": "string",
+        "title": "OAuth access token (writes)",
+        "description": "Optional pre-obtained OAuth2 access token with the spreadsheets scope. Used for the WRITE actions. If set, the refresh-token fields are not needed."
+      },
+      "GOOGLE_CLIENT_ID": {
+        "type": "string",
+        "title": "OAuth client id (writes)",
+        "description": "OAuth2 client id for the refresh-token flow (writes)."
+      },
+      "GOOGLE_CLIENT_SECRET": {
+        "type": "string",
+        "title": "OAuth client secret (writes)",
+        "description": "OAuth2 client secret for the refresh-token flow (writes)."
+      },
+      "GOOGLE_REFRESH_TOKEN": {
+        "type": "string",
+        "title": "OAuth refresh token (writes)",
+        "description": "OAuth2 refresh token with the spreadsheets scope, for the refresh-token flow (writes)."
       }
     }
   },
@@ -185,6 +205,73 @@
           "matchValue": { "type": "string", "title": "Match value" },
           "rows": { "type": "array", "title": "Matching rows", "items": { "type": "object" } },
           "rowCount": { "type": "number", "title": "Match count" },
+          "ok": { "type": "boolean", "title": "OK" },
+          "status": { "type": "string", "title": "Status" },
+          "errorCount": { "type": "number", "title": "Error count" },
+          "warningCount": { "type": "number", "title": "Warning count" },
+          "errors": { "type": "array", "title": "Errors", "items": { "type": "object", "properties": { "code": { "type": "string" }, "message": { "type": "string" }, "field": { "type": "string" } } } },
+          "warnings": { "type": "array", "title": "Warnings", "items": { "type": "object", "properties": { "code": { "type": "string" }, "message": { "type": "string" }, "field": { "type": "string" } } } }
+        }
+      }
+    },
+    {
+      "name": "appendRows",
+      "label": "Append Rows (write)",
+      "description": "Append new rows to the bottom of a tab. The safe write action — it never overwrites existing data. Row objects are aligned to the tab's columns (provide columns to fix the order, or the header row is used). Defaults to RAW input so values are stored literally. Requires OAuth credentials.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "spreadsheetId": { "type": "string", "title": "Spreadsheet ID or URL", "description": "The Google Sheet's id, or a full sheet URL." },
+          "tab": { "type": "string", "title": "Tab name", "description": "The worksheet/tab to append to." },
+          "rows": { "type": "array", "title": "Rows", "description": "Row objects to append (keyed by column name).", "items": { "type": "object" } },
+          "columns": { "type": "array", "title": "Columns (optional)", "description": "Explicit column order. Omit to use the tab's header row.", "items": { "type": "string" } },
+          "valueMode": { "type": "string", "title": "Value input mode", "description": "raw (default, stored literally) or user (parsed like a person typed it)." }
+        },
+        "required": ["spreadsheetId", "tab", "rows"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "spreadsheetId": { "type": "string", "title": "Spreadsheet ID" },
+          "tab": { "type": "string", "title": "Tab" },
+          "appendedRows": { "type": "number", "title": "Rows appended" },
+          "updatedRange": { "type": "string", "title": "Updated range" },
+          "columns": { "type": "array", "title": "Columns used", "items": { "type": "string" } },
+          "ok": { "type": "boolean", "title": "OK" },
+          "status": { "type": "string", "title": "Status" },
+          "errorCount": { "type": "number", "title": "Error count" },
+          "warningCount": { "type": "number", "title": "Warning count" },
+          "errors": { "type": "array", "title": "Errors", "items": { "type": "object", "properties": { "code": { "type": "string" }, "message": { "type": "string" }, "field": { "type": "string" } } } },
+          "warnings": { "type": "array", "title": "Warnings", "items": { "type": "object", "properties": { "code": { "type": "string" }, "message": { "type": "string" }, "field": { "type": "string" } } } }
+        }
+      }
+    },
+    {
+      "name": "updateRange",
+      "label": "Update Range (write)",
+      "description": "Overwrite a specific A1 range in a tab. The deliberate write action — it replaces whatever is there (including formulas), so target a range you own. Provide either values (a 2D array) or rows + columns. Defaults to RAW input. Requires OAuth credentials.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "spreadsheetId": { "type": "string", "title": "Spreadsheet ID or URL", "description": "The Google Sheet's id, or a full sheet URL." },
+          "tab": { "type": "string", "title": "Tab name", "description": "The worksheet/tab to write to." },
+          "range": { "type": "string", "title": "A1 range", "description": "The range within the tab to overwrite, e.g. A2:D10." },
+          "values": { "type": "array", "title": "Values (2D array)", "description": "Rows of cell values. Use this OR rows+columns.", "items": { "type": "array", "items": {} } },
+          "rows": { "type": "array", "title": "Rows (objects)", "description": "Row objects, turned into values using columns. Use this OR values.", "items": { "type": "object" } },
+          "columns": { "type": "array", "title": "Columns", "description": "Column order, required when writing rows.", "items": { "type": "string" } },
+          "valueMode": { "type": "string", "title": "Value input mode", "description": "raw (default, stored literally) or user (parsed like a person typed it)." }
+        },
+        "required": ["spreadsheetId", "tab", "range"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "spreadsheetId": { "type": "string", "title": "Spreadsheet ID" },
+          "tab": { "type": "string", "title": "Tab" },
+          "range": { "type": "string", "title": "Range" },
+          "updatedCells": { "type": "number", "title": "Cells updated" },
+          "updatedRows": { "type": "number", "title": "Rows updated" },
+          "updatedRange": { "type": "string", "title": "Updated range" },
           "ok": { "type": "boolean", "title": "OK" },
           "status": { "type": "string", "title": "Status" },
           "errorCount": { "type": "number", "title": "Error count" },
