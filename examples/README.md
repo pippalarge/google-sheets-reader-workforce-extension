@@ -35,7 +35,7 @@ These use the two extensions together: **Google Sheets** loads the rows; **Table
 
 ## How the two extensions fit together
 
-[Google Sheets](https://github.com/pippalarge/google-sheets-reader-workforce-extension) and [Table Tools](https://github.com/pippalarge/csv-tools-workforce-extension) are two halves of one tabular-data pipeline, joined by a shared shape: **`rows`** (an array of header-keyed objects).
+[Google Sheets](https://github.com/pippalarge/google-sheets-reader-workforce-extension) and [Table Tools](https://github.com/pippalarge/table-tools-workforce-extension) are two halves of one tabular-data pipeline, joined by a shared shape: **`rows`** (an array of header-keyed objects).
 
 - **Google Sheets = I/O** — gets `rows` out of (`loadRows` / `loadTabs`) and back into (`appendRows` / `updateRange`) a live, business-owned sheet.
 - **Table Tools = transforms** — pure-CPU shaping of `rows`: `filterRows`, `sortRows`, `joinRows`, `addColumn`, `pluckColumn`, `selectColumns`, `validateRows`, `dedupeRows`, `chunkRows`, and CSV/JSON adapters.

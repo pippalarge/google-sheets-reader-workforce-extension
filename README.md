@@ -21,7 +21,7 @@ Built for four jobs:
 
 Read actions make one HTTP call; write actions make one or two (plus at most one token refresh) — all under the sandbox's 10-call cap. Read once, process in memory; don't loop these over a large catalogue in one execution.
 
-This extension is **I/O only** — it gets rows in and out. To *query or reshape* those rows (filter to matching rows, pull a single column's values, join with another tab, add a column), use the **[Table Tools](https://github.com/pippalarge/csv-tools-workforce-extension)** extension — both speak the same `rows` shape, so they chain directly.
+This extension is **I/O only** — it gets rows in and out. To *query or reshape* those rows (filter to matching rows, pull a single column's values, join with another tab, add a column), use the **[Table Tools](https://github.com/pippalarge/table-tools-workforce-extension)** extension — both speak the same `rows` shape, so they chain directly.
 
 ## Example data
 
@@ -29,7 +29,7 @@ This extension is **I/O only** — it gets rows in and out. To *query or reshape
 
 ## Works together with Table Tools
 
-This extension and [Table Tools](https://github.com/pippalarge/csv-tools-workforce-extension) are two halves of one tabular-data pipeline, joined by a shared shape — **`rows`** (an array of header-keyed objects):
+This extension and [Table Tools](https://github.com/pippalarge/table-tools-workforce-extension) are two halves of one tabular-data pipeline, joined by a shared shape — **`rows`** (an array of header-keyed objects):
 
 - **Google Sheets = I/O** — gets `rows` out of (`loadRows` / `loadTabs`) and back into (`appendRows` / `updateRange`) a live, business-owned sheet.
 - **Table Tools = transforms** — `filterRows`, `sortRows`, `joinRows`, `addColumn`, `pluckColumn`, `validateRows`, … over those same `rows`.
