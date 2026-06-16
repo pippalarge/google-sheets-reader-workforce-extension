@@ -542,8 +542,8 @@
     },
     {
       "name": "appendRows",
-      "label": "Append Rows (write)",
-      "description": "Append new rows to the bottom of a tab. The safe write action — it never overwrites existing data. Row objects are aligned to the tab's columns (provide columns to fix the order, or the header row is used). Defaults to RAW input so values are stored literally. Requires OAuth credentials.",
+      "label": "Append Rows (write · OAuth)",
+      "description": "WRITE — needs OAuth credentials (the spreadsheets scope); the read-only API key alone will NOT run this. Appends new rows to the bottom of a tab. The safe write action — it never overwrites existing data. Row objects are aligned to the tab's columns (provide columns to fix the order, or the header row is used). Defaults to RAW input so values are stored literally.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -668,8 +668,8 @@
     },
     {
       "name": "updateRange",
-      "label": "Update Range (write)",
-      "description": "Overwrite a specific A1 range in a tab. The deliberate write action — it replaces whatever is there (including formulas), so target a range you own. Provide either values (a 2D array) or rows + columns. Defaults to RAW input. Requires OAuth credentials.",
+      "label": "Update Range (write · OAuth)",
+      "description": "WRITE — needs OAuth credentials (the spreadsheets scope); the read-only API key alone will NOT run this. Overwrites a specific A1 range in a tab. The deliberate write action — it replaces whatever is there (including formulas), so target a range you own. Provide either values (a 2D array) or rows + columns. Defaults to RAW input.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -804,6 +804,44 @@
               }
             }
           }
+        }
+      }
+    },
+    {
+      "name": "addTab",
+      "label": "Add Tab (write · OAuth)",
+      "description": "WRITE — needs OAuth credentials (the spreadsheets scope); the read-only API key alone will NOT run this. Creates a new tab (worksheet) in the spreadsheet. A structural change (not a values write); pair with Append Rows to write outputs to a fresh tab. Returns a tab_exists error if the title is already taken.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "spreadsheetId": {
+            "type": "string",
+            "title": "Spreadsheet ID or URL",
+            "description": "The Google Sheet's id, or a full sheet URL."
+          },
+          "title": {
+            "type": "string",
+            "title": "Tab title",
+            "description": "The name for the new tab."
+          }
+        },
+        "required": [
+          "spreadsheetId",
+          "title"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "spreadsheetId": { "type": "string", "title": "Spreadsheet ID" },
+          "tab": { "type": "string", "title": "New tab name" },
+          "sheetId": { "type": "number", "title": "New sheet ID" },
+          "ok": { "type": "boolean", "title": "OK" },
+          "status": { "type": "string", "title": "Status" },
+          "errorCount": { "type": "number", "title": "Error count" },
+          "warningCount": { "type": "number", "title": "Warning count" },
+          "errors": { "type": "array", "title": "Errors", "items": { "type": "object", "properties": { "code": { "type": "string" }, "message": { "type": "string" }, "field": { "type": "string" } } } },
+          "warnings": { "type": "array", "title": "Warnings", "items": { "type": "object", "properties": { "code": { "type": "string" }, "message": { "type": "string" }, "field": { "type": "string" } } } }
         }
       }
     }

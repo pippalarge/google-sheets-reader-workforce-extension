@@ -647,6 +647,46 @@ async function updateRange({ spreadsheetId, tab, range, values, rows, columns, v
   });
 }
 
+// addTab: create a new tab (worksheet) in a spreadsheet. A structural change —
+// it uses spreadsheets:batchUpdate (addSheet), not the values API. Pairs with
+// appendRows to write outputs to a fresh tab. WRITE — needs OAuth (the API key
+// cannot do this). Returns a clear tab_exists error if the title is taken.
+// Input:  { spreadsheetId, title }
+// Output: { spreadsheetId, tab, sheetId } + envelope
+async function addTab({ spreadsheetId, title }) {
+  const id = resolveSpreadsheetId(spreadsheetId);
+  const tabName = trimStr(title);
+  const base = { spreadsheetId: id, tab: tabName, sheetId: null };
+  if (!id) return envelope(base, [issue("missing_spreadsheet_id", "spreadsheetId is required.", "spreadsheetId")]);
+  if (!tabName) return envelope(base, [issue("missing_title", "title is required.", "title")]);
+
+  const auth = await getAccessToken();
+  if (auth.error) return envelope(base, [auth.error]);
+
+  const writeRes = await sheetsAuthed(
+    "POST",
+    `/${encodeURIComponent(id)}:batchUpdate`,
+    auth.token,
+    {},
+    { requests: [{ addSheet: { properties: { title: tabName } } }] }
+  );
+  if (writeRes.error) {
+    // A duplicate title comes back as a generic 400 — surface a routable code.
+    if (writeRes.error.code === "bad_request" && /already exists/i.test(writeRes.error.message || "")) {
+      return envelope(base, [issue("tab_exists", `A tab named "${tabName}" already exists in this spreadsheet.`, "title")]);
+    }
+    return envelope(base, [writeRes.error]);
+  }
+
+  const replies = (writeRes.data && writeRes.data.replies) || [];
+  const props = (replies[0] && replies[0].addSheet && replies[0].addSheet.properties) || {};
+  return envelope({
+    spreadsheetId: id,
+    tab: props.title || tabName,
+    sheetId: props.sheetId === undefined ? null : props.sheetId,
+  });
+}
+
 export {
   listTabs,
   describeSheet,
@@ -654,4 +694,5 @@ export {
   loadTabs,
   appendRows,
   updateRange,
+  addTab,
 };

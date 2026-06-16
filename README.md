@@ -18,6 +18,9 @@ Built for four jobs:
 | `loadTabs` | Load several tabs in one batched call — all tabs by default. | API key |
 | `appendRows` | **Write** — append new rows to the bottom of a tab. Safe: never overwrites. | OAuth |
 | `updateRange` | **Write** — overwrite a specific A1 range. Deliberate: replaces what's there. | OAuth |
+| `addTab` | **Write** — create a new tab (worksheet). Pair with `appendRows` to write outputs to a fresh tab. | OAuth |
+
+The **API key alone runs only the four read actions.** The three write actions (`appendRows`, `updateRange`, `addTab`) need **OAuth** credentials — their labels are tagged `(write · OAuth)` and their descriptions say so, and if OAuth isn't configured they return a clear `missing_credentials` error rather than failing silently.
 
 Read actions make one HTTP call; write actions make one or two (plus at most one token refresh) — all under the sandbox's 10-call cap. Read once, process in memory; don't loop these over a large catalogue in one execution.
 

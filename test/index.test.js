@@ -1,7 +1,7 @@
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 
-import { listTabs, describeSheet, loadRows, loadTabs, appendRows, updateRange } from "../index.js";
+import { listTabs, describeSheet, loadRows, loadTabs, appendRows, updateRange, addTab } from "../index.js";
 
 // ---------------------------------------------------------------------------
 // Harness: stub global.fetch and process.env so the pure logic (URL building,
@@ -429,5 +429,50 @@ test("updateRange writing rows without columns errors", async () => {
   process.env.GOOGLE_ACCESS_TOKEN = "T";
   const res = await updateRange({ spreadsheetId: "abc", tab: "Sheet1", range: "A1:B1", rows: [{ a: 1 }] });
   assert.equal(res.errors[0].code, "missing_columns");
+  delete process.env.GOOGLE_ACCESS_TOKEN;
+});
+
+// ---------------------------------------------------------------------------
+// addTab (write — batchUpdate addSheet)
+// ---------------------------------------------------------------------------
+
+test("addTab creates a tab via batchUpdate and returns the new sheetId", async () => {
+  process.env.GOOGLE_ACCESS_TOKEN = "T";
+  nextResponse = (url, opts) => {
+    assert.ok(url.includes(":batchUpdate"), url);
+    assert.equal(opts.method, "POST");
+    return { status: 200, body: { replies: [{ addSheet: { properties: { sheetId: 42, title: "Results" } } }] } };
+  };
+  const res = await addTab({ spreadsheetId: "abc", title: "Results" });
+  assert.equal(res.ok, true);
+  assert.equal(res.tab, "Results");
+  assert.equal(res.sheetId, 42);
+  // body carries the addSheet request
+  assert.deepEqual(bodyOf(fetchCalls[0]), { requests: [{ addSheet: { properties: { title: "Results" } } }] });
+  assert.equal(fetchCalls[0].opts.headers.Authorization, "Bearer T");
+  delete process.env.GOOGLE_ACCESS_TOKEN;
+});
+
+test("addTab maps a duplicate-title 400 to tab_exists", async () => {
+  process.env.GOOGLE_ACCESS_TOKEN = "T";
+  nextResponse = { status: 400, body: { error: { message: 'A sheet with the name "Results" already exists.' } } };
+  const res = await addTab({ spreadsheetId: "abc", title: "Results" });
+  assert.equal(res.ok, false);
+  assert.equal(res.errors[0].code, "tab_exists");
+  assert.equal(res.errors[0].field, "title");
+  delete process.env.GOOGLE_ACCESS_TOKEN;
+});
+
+test("addTab without credentials surfaces missing_credentials, no network", async () => {
+  const res = await addTab({ spreadsheetId: "abc", title: "Results" });
+  assert.equal(res.errors[0].code, "missing_credentials");
+  assert.equal(fetchCalls.length, 0);
+});
+
+test("addTab requires a title", async () => {
+  process.env.GOOGLE_ACCESS_TOKEN = "T";
+  const res = await addTab({ spreadsheetId: "abc", title: "" });
+  assert.equal(res.errors[0].code, "missing_title");
+  assert.equal(fetchCalls.length, 0);
   delete process.env.GOOGLE_ACCESS_TOKEN;
 });

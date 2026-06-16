@@ -11,8 +11,11 @@ Actions:
 - Describe Sheet — inspect one tab: its real used size and its column headers.
 - Load Rows — load one tab or A1 range as row objects, with paging.
 - Load Tabs — load several tabs in one batched call (all tabs by default).
-- Append Rows (write) — add new rows to the bottom of a tab. Safe: never overwrites.
-- Update Range (write) — overwrite a specific A1 range. Deliberate: replaces what is there.
+- Append Rows (write · OAuth) — add new rows to the bottom of a tab. Safe: never overwrites.
+- Update Range (write · OAuth) — overwrite a specific A1 range. Deliberate: replaces what is there.
+- Add Tab (write · OAuth) — create a new tab (worksheet). Pair with Append Rows to write outputs to a fresh tab.
+
+The four read actions run on the API key alone. The three write actions (Append Rows, Update Range, Add Tab) need OAuth credentials — the API key alone will not run them.
 
 To query or shape loaded rows (filter, sort, join, pluck a column, add a column), pair with the Table Tools extension.
 
