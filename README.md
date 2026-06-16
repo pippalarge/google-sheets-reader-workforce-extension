@@ -21,7 +21,7 @@ Each action makes at most **one** HTTP call to Google — well under the sandbox
 
 ## Example data
 
-[`examples/ecommerce-examples.xlsx`](examples/) is a dummy multi-tab workbook (a fictional clothing retailer) covering every function — product data, taxonomy, range→category mapping, column-oriented allowed values, synonyms, and a brand dictionary. See [`examples/README.md`](examples/README.md) for which tab demonstrates which action. All data is invented.
+[`examples/ecommerce-examples.xlsx`](examples/) is a dummy multi-tab workbook (the fictional retailer "AnyaFinn") covering every function — product data, taxonomy, range→category mapping, column-oriented allowed values, synonyms, and a brand dictionary. See [`examples/README.md`](examples/README.md) for which tab demonstrates which action. All data is invented.
 
 ## Works with CSV Tools
 

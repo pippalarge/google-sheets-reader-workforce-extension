@@ -1,6 +1,6 @@
 # Example data (dummy)
 
-A fictional clothing retailer ("Harbour & Pine") — **all data is invented** and safe to use in docs, demos, and tests.
+A fictional clothing retailer ("AnyaFinn", Amplience's standard dummy retailer) — **all data is invented** and safe to use in docs, demos, and tests.
 
 - [`ecommerce-examples.xlsx`](ecommerce-examples.xlsx) — one workbook, seven tabs (upload to Google Sheets to try the extension).
 - [`csv/`](csv) — the same seven tabs exported as CSV (handy for **CSV Tools** — see below).

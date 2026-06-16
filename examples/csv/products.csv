@@ -1,13 +1,13 @@
 SKU,Title,Department,Category,Subcategory,Brand,Colour,Size,Price,Currency,In Stock
-HP-1001,Linen Blend Midi Dress,Womens,Dresses,Day Dresses,Harbour & Pine,Sage,M,49,GBP,TRUE
-HP-1002,Organic Cotton Crew Tee,Womens,Tops,T-Shirts,Harbour & Pine,White,S,18,GBP,TRUE
-HP-1003,Relaxed Oxford Shirt,Mens,Tops,Shirts,Northwind,Blue,L,39,GBP,FALSE
-HP-1004,Slim Stretch Chinos,Mens,Bottoms,Trousers,Northwind,Stone,32,45,GBP,TRUE
-HP-1005,Quilted Puffer Jacket,Womens,Outerwear,Coats,Harbour & Pine,Black,M,89,GBP,TRUE
-HP-1006,Canvas Low-Top Trainers,Unisex,Footwear,Trainers,Trailhead,Off White,8,55,GBP,TRUE
-HP-1007,Merino Crew Knit,Mens,Tops,Knitwear,Northwind,Charcoal,M,59,GBP,TRUE
-HP-1008,Floral Wrap Blouse,Womens,Tops,Blouses,Harbour & Pine,Pink,L,32,GBP,FALSE
-HP-1009,High-Rise Skinny Jeans,Womens,Bottoms,Jeans,Harbour & Pine,Indigo,10,42,GBP,TRUE
-HP-1010,Waterproof Hiking Boots,Unisex,Footwear,Boots,Trailhead,Brown,9,95,GBP,TRUE
-HP-1011,Ribbed Beanie Hat,Unisex,Accessories,Hats,Trailhead,Mustard,One Size,14,GBP,TRUE
-HP-1012,Pleated Tennis Skirt,Womens,Bottoms,Skirts,Harbour & Pine,Navy,S,28,GBP,TRUE
+AF-1001,Linen Blend Midi Dress,Womens,Dresses,Day Dresses,AnyaFinn,Sage,M,49,GBP,TRUE
+AF-1002,Organic Cotton Crew Tee,Womens,Tops,T-Shirts,AnyaFinn,White,S,18,GBP,TRUE
+AF-1003,Relaxed Oxford Shirt,Mens,Tops,Shirts,AnyaFinn,Blue,L,39,GBP,FALSE
+AF-1004,Slim Stretch Chinos,Mens,Bottoms,Trousers,AnyaFinn,Stone,32,45,GBP,TRUE
+AF-1005,Quilted Puffer Jacket,Womens,Outerwear,Coats,AnyaFinn,Black,M,89,GBP,TRUE
+AF-1006,Canvas Low-Top Trainers,Unisex,Footwear,Trainers,AnyaFinn Active,Off White,8,55,GBP,TRUE
+AF-1007,Merino Crew Knit,Mens,Tops,Knitwear,AnyaFinn,Charcoal,M,59,GBP,TRUE
+AF-1008,Floral Wrap Blouse,Womens,Tops,Blouses,AnyaFinn Edit,Pink,L,32,GBP,FALSE
+AF-1009,High-Rise Skinny Jeans,Womens,Bottoms,Jeans,AnyaFinn,Indigo,10,42,GBP,TRUE
+AF-1010,Waterproof Hiking Boots,Unisex,Footwear,Boots,AnyaFinn Active,Brown,9,95,GBP,TRUE
+AF-1011,Ribbed Beanie Hat,Unisex,Accessories,Hats,AnyaFinn,Mustard,One Size,14,GBP,TRUE
+AF-1012,Pleated Tennis Skirt,Womens,Bottoms,Skirts,AnyaFinn Active,Navy,S,28,GBP,TRUE
