@@ -1,0 +1,13 @@
+Department,Category,Subcategory,Category Code
+Womens,Dresses,Day Dresses,W-DR-DAY
+Womens,Dresses,Occasion Dresses,W-DR-OCC
+Womens,Tops,T-Shirts,W-TO-TEE
+Womens,Tops,Blouses,W-TO-BLO
+Womens,Bottoms,Jeans,W-BO-JEA
+Womens,Bottoms,Skirts,W-BO-SKI
+Mens,Tops,Shirts,M-TO-SHI
+Mens,Tops,Knitwear,M-TO-KNI
+Mens,Bottoms,Trousers,M-BO-TRO
+Unisex,Footwear,Trainers,U-FW-TRA
+Unisex,Footwear,Boots,U-FW-BOO
+Unisex,Accessories,Hats,U-AC-HAT

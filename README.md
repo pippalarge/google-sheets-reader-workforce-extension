@@ -19,6 +19,25 @@ Built for three jobs:
 
 Each action makes at most **one** HTTP call to Google — well under the sandbox's 10-call cap. Read once, process in memory; don't loop these over a large catalogue in one execution.
 
+## Example data
+
+[`examples/ecommerce-examples.xlsx`](examples/) is a dummy multi-tab workbook (a fictional clothing retailer) covering every function — product data, taxonomy, range→category mapping, column-oriented allowed values, synonyms, and a brand dictionary. See [`examples/README.md`](examples/README.md) for which tab demonstrates which action. All data is invented.
+
+## Works with CSV Tools
+
+This extension and [CSV Tools](https://github.com/pippalarge/csv-tools-workforce-extension) are two halves of one tabular-data pipeline and share the same shape — an array of header-keyed row objects (`rows`):
+
+- **Google Sheets Reader = I/O** — gets `rows` out of a live, business-owned sheet.
+- **CSV Tools = transforms** — pure-CPU `filterRows` / `selectColumns` / `validateRows` / `dedupeRows` / `chunkRows` / `toJson` / `arrayToCsv` over those same `rows`.
+
+`readRows` outputs `{ rows: [...] }` and every CSV Tools action takes `{ rows: [...] }`, so they chain directly:
+
+```
+readRows (Sheets) → validateRows → filterRows → selectColumns → toJson / arrayToCsv → downstream
+```
+
+Use `chunkRows` (CSV Tools) after a single `readRows` to batch rows for per-row API steps and stay under the 10-call sandbox cap.
+
 ## Auth (read-only via API key)
 
 This version reads sheets shared as **"anyone with the link can view"** using a Google API key — no service account, no OAuth, no login.
