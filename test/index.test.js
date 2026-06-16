@@ -1,7 +1,7 @@
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 
-import { listTabs, describeSheet, readRows, getColumnValues, lookupRows, appendRows, updateRange } from "../index.js";
+import { listTabs, describeSheet, loadRows, loadTabs, getColumnValues, lookupRows, appendRows, updateRange } from "../index.js";
 
 // ---------------------------------------------------------------------------
 // Harness: stub global.fetch and process.env so the pure logic (URL building,
@@ -58,7 +58,7 @@ const ATTR_GRID = {
 
 test("missing API key surfaces as an error in the envelope, not a throw", async () => {
   delete process.env.GOOGLE_API_KEY;
-  const res = await readRows({ spreadsheetId: "abc", tab: "Sheet1" });
+  const res = await loadRows({ spreadsheetId: "abc", tab: "Sheet1" });
   assert.equal(res.ok, false);
   assert.equal(res.errorCount, 1);
   assert.equal(res.errors[0].code, "missing_api_key");
@@ -72,8 +72,8 @@ test("missing spreadsheetId is an error before any call", async () => {
   assert.equal(fetchCalls.length, 0);
 });
 
-test("readRows requires a tab", async () => {
-  const res = await readRows({ spreadsheetId: "abc", tab: "" });
+test("loadRows requires a tab", async () => {
+  const res = await loadRows({ spreadsheetId: "abc", tab: "" });
   assert.equal(res.errors[0].code, "missing_tab");
 });
 
@@ -83,7 +83,7 @@ test("readRows requires a tab", async () => {
 
 test("accepts a full sheet URL and extracts the id; appends the API key", async () => {
   nextResponse = { status: 200, body: ATTR_GRID };
-  await readRows({
+  await loadRows({
     spreadsheetId: "https://docs.google.com/spreadsheets/d/1AbC-dEf_123/edit#gid=0",
     tab: "WOMENS DRESSES",
   });
@@ -95,7 +95,7 @@ test("accepts a full sheet URL and extracts the id; appends the API key", async 
 
 test("valueMode maps to the right valueRenderOption", async () => {
   nextResponse = { status: 200, body: ATTR_GRID };
-  await readRows({ spreadsheetId: "abc", tab: "S", valueMode: "unformatted" });
+  await loadRows({ spreadsheetId: "abc", tab: "S", valueMode: "unformatted" });
   assert.ok(fetchCalls[0].url.includes("valueRenderOption=UNFORMATTED_VALUE"));
 });
 
@@ -124,10 +124,10 @@ test("listTabs maps tab metadata", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// readRows: grid -> header-keyed rows, trimming, padding, blank-row skipping
+// loadRows: grid -> header-keyed rows, trimming, padding, blank-row skipping
 // ---------------------------------------------------------------------------
 
-test("readRows builds header-keyed rows, trims headers, pads short rows, skips blanks", async () => {
+test("loadRows builds header-keyed rows, trims headers, pads short rows, skips blanks", async () => {
   nextResponse = {
     status: 200,
     body: {
@@ -139,7 +139,7 @@ test("readRows builds header-keyed rows, trims headers, pads short rows, skips b
       ],
     },
   };
-  const res = await readRows({ spreadsheetId: "abc", tab: "S" });
+  const res = await loadRows({ spreadsheetId: "abc", tab: "S" });
   assert.equal(res.ok, true);
   assert.deepEqual(res.headers, ["Product Type", "Neck Shape", "Sleeve Length"]);
   assert.equal(res.rowCount, 2);
@@ -147,9 +147,9 @@ test("readRows builds header-keyed rows, trims headers, pads short rows, skips b
   assert.deepEqual(res.rows[1], { "Product Type": "Top", "Neck Shape": "V-Neck", "Sleeve Length": "" });
 });
 
-test("readRows honours limit/offset and flags truncation", async () => {
+test("loadRows honours limit/offset and flags truncation", async () => {
   nextResponse = { status: 200, body: ATTR_GRID };
-  const res = await readRows({ spreadsheetId: "abc", tab: "S", limit: 1, offset: 1 });
+  const res = await loadRows({ spreadsheetId: "abc", tab: "S", limit: 1, offset: 1 });
   assert.equal(res.totalRows, 3);
   assert.equal(res.rowCount, 1);
   assert.equal(res.rows[0]["Neck Shape"], "V-Neck");
@@ -157,14 +157,14 @@ test("readRows honours limit/offset and flags truncation", async () => {
   assert.equal(res.warningCount, 1);
 });
 
-test("readRows with explicit A1 range puts the range in the request", async () => {
+test("loadRows with explicit A1 range puts the range in the request", async () => {
   nextResponse = { status: 200, body: ATTR_GRID };
-  await readRows({ spreadsheetId: "abc", tab: "WOMENS DRESSES", range: "A1:C10" });
+  await loadRows({ spreadsheetId: "abc", tab: "WOMENS DRESSES", range: "A1:C10" });
   const url = decodeURIComponent(fetchCalls[0].url);
   assert.ok(url.includes("'WOMENS DRESSES'!A1:C10"), url);
 });
 
-test("readRows supports a non-default header row", async () => {
+test("loadRows supports a non-default header row", async () => {
   nextResponse = {
     status: 200,
     body: {
@@ -175,7 +175,7 @@ test("readRows supports a non-default header row", async () => {
       ],
     },
   };
-  const res = await readRows({ spreadsheetId: "abc", tab: "Sheet1", headerRow: 2 });
+  const res = await loadRows({ spreadsheetId: "abc", tab: "Sheet1", headerRow: 2 });
   assert.deepEqual(res.headers, ["Actual", "Alt1", "Alt2"]);
   assert.equal(res.rowCount, 1);
   assert.deepEqual(res.rows[0], { Actual: "T-Shirt", Alt1: "Tee", Alt2: "Tshirt" });
@@ -200,6 +200,55 @@ test("describeSheet warns on a header-only stub tab", async () => {
   assert.equal(res.ok, true);
   assert.equal(res.warningCount, 1);
   assert.equal(res.warnings[0].code, "empty_tab");
+});
+
+// ---------------------------------------------------------------------------
+// loadTabs (batched multi-tab; all-by-default)
+// ---------------------------------------------------------------------------
+
+test("loadTabs with an explicit list batch-reads those tabs in one call", async () => {
+  nextResponse = (url) => {
+    assert.ok(url.includes("/values:batchGet"), url);
+    return {
+      status: 200,
+      body: {
+        valueRanges: [
+          { values: [["SKU", "Title"], ["AF-1", "Tee"]] },
+          { values: [["Product Type"], ["Dress"], ["Top"]] },
+        ],
+      },
+    };
+  };
+  const res = await loadTabs({ spreadsheetId: "abc", tabs: ["Products", "Allowed Values - Dresses"] });
+  assert.equal(res.ok, true);
+  assert.equal(res.tabCount, 2);
+  assert.equal(res.totalRows, 3); // 1 + 2
+  assert.equal(res.tabs[0].tab, "Products");
+  assert.deepEqual(res.tabs[0].rows[0], { SKU: "AF-1", Title: "Tee" });
+  assert.equal(res.tabs[1].rowCount, 2);
+  // exactly one HTTP call (batchGet), no per-tab calls
+  assert.equal(fetchCalls.length, 1);
+  // each tab name became a `ranges` param
+  const u = decodeURIComponent(fetchCalls[0].url).replace(/\+/g, " ");
+  assert.ok(u.includes("ranges='Products'") && u.includes("ranges='Allowed Values - Dresses'"), u);
+});
+
+test("loadTabs with no tabs loads ALL tabs (metadata call + one batchGet)", async () => {
+  nextResponse = (url) => {
+    if (url.includes("/values:batchGet")) {
+      return { status: 200, body: { valueRanges: [ { values: [["A"], ["1"]] }, { values: [["B"], ["2"]] } ] } };
+    }
+    // metadata: discover tab names
+    return { status: 200, body: { sheets: [ { properties: { title: "One" } }, { properties: { title: "Two" } } ] } };
+  };
+  const res = await loadTabs({ spreadsheetId: "abc" });
+  assert.equal(res.ok, true);
+  assert.equal(res.tabCount, 2);
+  assert.deepEqual(res.tabs.map((t) => t.tab), ["One", "Two"]);
+  // metadata call first, then the batched read
+  assert.equal(fetchCalls.length, 2);
+  assert.ok(!fetchCalls[0].url.includes(":batchGet"));
+  assert.ok(fetchCalls[1].url.includes(":batchGet"));
 });
 
 // ---------------------------------------------------------------------------
@@ -277,7 +326,7 @@ test("lookupRows requires a match value", async () => {
 
 test("403 maps to a clear access_denied message", async () => {
   nextResponse = { status: 403, body: { error: { message: "forbidden" } } };
-  const res = await readRows({ spreadsheetId: "abc", tab: "S" });
+  const res = await loadRows({ spreadsheetId: "abc", tab: "S" });
   assert.equal(res.ok, false);
   assert.equal(res.errors[0].code, "access_denied");
   assert.ok(res.errors[0].message.includes("anyone with the link"));

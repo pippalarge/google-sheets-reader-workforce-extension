@@ -181,7 +181,13 @@ async function sheetsGet(path, params) {
   if (!key) {
     return { error: issue("missing_api_key", "No Google API key configured. Set GOOGLE_API_KEY on the extension instance.", null) };
   }
-  const qs = new URLSearchParams({ ...params, key });
+  // Build the query string; array values (e.g. batchGet `ranges`) repeat the key.
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params || {})) {
+    if (Array.isArray(v)) v.forEach((x) => qs.append(k, x));
+    else qs.append(k, v);
+  }
+  qs.append("key", key);
   const url = `${SHEETS_API_BASE}${path}?${qs.toString()}`;
 
   let resp;
@@ -429,13 +435,14 @@ async function describeSheet({ spreadsheetId, tab, headerRow = 1, valueMode }) {
   }, [], warnings);
 }
 
-// readRows: read a tab (or an explicit A1 range within it) as header-keyed row
-// objects. Use for product feeds, eval data, and flow inputs.
+// loadRows: load one tab (or an explicit A1 range within it) as header-keyed
+// row objects. Use for product feeds, eval data, and flow inputs. For several
+// tabs at once, use loadTabs (one batched call).
 // Input:  { spreadsheetId, tab, range?, headerRow?, valueMode?, limit?, offset? }
 //   range  optional A1 within the tab (e.g. "A1:D100"); omit to read the whole used range
 //   limit  optional max rows to return (after offset); offset skips leading data rows
 // Output: { spreadsheetId, tab, headers, rows, rowCount, totalRows, truncated } + envelope
-async function readRows({ spreadsheetId, tab, range, headerRow = 1, valueMode, limit, offset = 0 }) {
+async function loadRows({ spreadsheetId, tab, range, headerRow = 1, valueMode, limit, offset = 0 }) {
   const id = resolveSpreadsheetId(spreadsheetId);
   const tabName = trimStr(tab);
   const base = { spreadsheetId: id, tab: tabName, headers: [], rows: [], rowCount: 0, totalRows: 0, truncated: false };
@@ -470,6 +477,56 @@ async function readRows({ spreadsheetId, tab, range, headerRow = 1, valueMode, l
     totalRows: rows.length,
     truncated,
   }, [], warnings);
+}
+
+// loadTabs: load several tabs in ONE batched call (values:batchGet). With no
+// `tabs` given it loads ALL tabs in the spreadsheet (one extra metadata call to
+// discover their names). Far cheaper than looping loadRows — one request for
+// many tabs, which matters under the 10-call sandbox cap.
+// Input:  { spreadsheetId, tabs?, headerRow?, valueMode? }
+//   tabs   optional list of tab names; omit/empty = all tabs
+// Output: { spreadsheetId, tabs:[{ tab, headers, rows, rowCount }], tabCount, totalRows } + envelope
+async function loadTabs({ spreadsheetId, tabs, headerRow = 1, valueMode }) {
+  const id = resolveSpreadsheetId(spreadsheetId);
+  const base = { spreadsheetId: id, tabs: [], tabCount: 0, totalRows: 0 };
+  if (!id) return envelope(base, [issue("missing_spreadsheet_id", "spreadsheetId is required.", "spreadsheetId")]);
+
+  const warnings = [];
+  let names = Array.isArray(tabs) ? tabs.map(trimStr).filter(Boolean) : [];
+
+  // No tabs given -> load them ALL: discover the names first (one metadata call).
+  if (names.length === 0) {
+    const meta = await sheetsGet(`/${encodeURIComponent(id)}`, { fields: "sheets.properties.title" });
+    if (meta.error) return envelope(base, [meta.error]);
+    const sheets = Array.isArray(meta.data.sheets) ? meta.data.sheets : [];
+    names = sheets.map((s) => (s && s.properties && s.properties.title) || "").filter(Boolean);
+    if (names.length === 0) return envelope(base, [issue("no_tabs", "The spreadsheet has no tabs.", null)]);
+  }
+
+  // One batched read for every tab (each range is just the tab name -> used range).
+  const { data, error } = await sheetsGet(`/${encodeURIComponent(id)}/values:batchGet`, {
+    ranges: names.map((n) => tabRange(n)),
+    valueRenderOption: valueRenderOption(valueMode),
+    majorDimension: "ROWS",
+  });
+  if (error) return envelope(base, [error]);
+
+  const valueRanges = Array.isArray(data.valueRanges) ? data.valueRanges : [];
+  const headerIdx = Math.max(0, headerRow - 1);
+  let totalRows = 0;
+  const out = names.map((name, i) => {
+    const grid = (valueRanges[i] && Array.isArray(valueRanges[i].values)) ? valueRanges[i].values : [];
+    const { headers, rows } = gridToRows(grid, headerIdx);
+    totalRows += rows.length;
+    return { tab: name, headers, rows, rowCount: rows.length };
+  });
+
+  // Soft heads-up for big workbooks — still returns everything.
+  if (out.length > 20) {
+    warnings.push(issue("many_tabs", `Loaded all ${out.length} tabs in one call; for very large workbooks consider passing a 'tabs' subset to keep the payload small.`, null));
+  }
+
+  return envelope({ spreadsheetId: id, tabs: out, tabCount: out.length, totalRows }, [], warnings);
 }
 
 // getColumnValues: read the values down a single named column. This is the
@@ -716,7 +773,8 @@ async function updateRange({ spreadsheetId, tab, range, values, rows, columns, v
 export {
   listTabs,
   describeSheet,
-  readRows,
+  loadRows,
+  loadTabs,
   getColumnValues,
   lookupRows,
   appendRows,

@@ -9,7 +9,8 @@ Built for four jobs:
 Actions:
 - List Tabs — list every tab in a sheet (the tab name is often itself a lookup key).
 - Describe Sheet — inspect one tab: its real used size and its column headers.
-- Read Rows — read a tab or A1 range as row objects, with paging.
+- Load Rows — load one tab or A1 range as row objects, with paging.
+- Load Tabs — load several tabs in one batched call (all tabs by default).
 - Get Column Values — read the values down a single named column (the reference-data workhorse).
 - Lookup Rows — find rows where a column matches a value, optionally returning selected columns.
 - Append Rows (write) — add new rows to the bottom of a tab. Safe: never overwrites.

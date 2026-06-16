@@ -9,8 +9,8 @@ A fictional clothing retailer ("AnyaFinn", Amplience's standard dummy retailer) 
 
 | Tab | Shape | Action it demonstrates | Use case |
 | --- | --- | --- | --- |
-| **Products** | rows of products | `readRows` | Product data — flow inputs/outputs |
-| **Taxonomy** | Department → Category → Subcategory + code | `readRows` / `lookupRows` | Taxonomy lookup |
+| **Products** | rows of products | `loadRows` | Product data — flow inputs/outputs |
+| **Taxonomy** | Department → Category → Subcategory + code | `loadRows` / `lookupRows` | Taxonomy lookup |
 | **Range to Category** | range → category → which attribute tab applies | `lookupRows` | Mapping / join-key lookup |
 | **Allowed Values - Dresses** | column-oriented (each column = an attribute) | `getColumnValues` | Attribute lookup |
 | **Allowed Values - Tops** | column-oriented | `getColumnValues` + `listTabs` | Attribute lookup across tabs |
@@ -39,14 +39,14 @@ Google Sheets Reader and [CSV Tools](https://github.com/pippalarge/csv-tools-wor
 - **Google Sheets Reader = I/O** — gets `rows` *out of* a sheet (a live, business-user-owned source).
 - **CSV Tools = transforms** — pure-CPU shaping of `rows`: `filterRows`, `selectColumns`, `mapColumns`, `validateRows`, `dedupeRows`, `chunkRows`, `summarizeRows`, `toJson` / `arrayToCsv`.
 
-Because `readRows` outputs `{ rows: [...] }` and every CSV Tools action takes `{ rows: [...] }`, they chain with no glue code:
+Because `loadRows` outputs `{ rows: [...] }` and every CSV Tools action takes `{ rows: [...] }`, they chain with no glue code:
 
 ```
-readRows (Sheets)  →  validateRows (CSV Tools)  →  filterRows  →  selectColumns  →  toJson / arrayToCsv  →  downstream step
+loadRows (Sheets)  →  validateRows (CSV Tools)  →  filterRows  →  selectColumns  →  toJson / arrayToCsv  →  downstream step
 ```
 
 Two patterns worth knowing:
-- **Stay under the API cap.** Read a sheet once with `readRows`, then `chunkRows` (CSV Tools) to batch the rows for any per-row API step — one sheet read, not one per row.
+- **Stay under the API cap.** Read a sheet once with `loadRows` (or all tabs with `loadTabs`), then `chunkRows` (CSV Tools) to batch the rows for any per-row API step — one sheet read, not one per row.
 - **Reference-data lookups in memory.** For a taxonomy/dictionary an agent hits many times, read the tab once and filter in memory rather than calling `lookupRows` per item.
 
 The CSV files in [`csv/`](csv) are the same data in the format `CSV Tools`' `parseCsv` consumes — so you can demo the two extensions together without a live sheet.

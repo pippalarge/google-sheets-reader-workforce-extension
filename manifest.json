@@ -107,14 +107,14 @@
       }
     },
     {
-      "name": "readRows",
-      "label": "Read Rows",
-      "description": "Read a tab (or an explicit A1 range within it) as header-keyed row objects. Use for product feeds, eval data, and flow inputs. Supports paging with limit/offset. Makes one API call.",
+      "name": "loadRows",
+      "label": "Load Rows",
+      "description": "Load one tab (or an explicit A1 range within it) as header-keyed row objects. Use for product feeds, eval data, and flow inputs. Supports paging with limit/offset. For several tabs at once use Load Tabs. Makes one API call.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "spreadsheetId": { "type": "string", "title": "Spreadsheet ID or URL", "description": "The Google Sheet's id, or a full sheet URL." },
-          "tab": { "type": "string", "title": "Tab name", "description": "The worksheet/tab to read." },
+          "tab": { "type": "string", "title": "Tab name", "description": "The worksheet/tab to load." },
           "range": { "type": "string", "title": "A1 range (optional)", "description": "A range within the tab, e.g. A1:D100. Omit to read the whole used range." },
           "headerRow": { "type": "number", "title": "Header row (1-based)", "description": "Which row holds the column headers. Defaults to 1." },
           "valueMode": { "type": "string", "title": "Value mode", "description": "formatted (default), unformatted, or formula." },
@@ -133,6 +133,48 @@
           "rowCount": { "type": "number", "title": "Returned row count" },
           "totalRows": { "type": "number", "title": "Total data rows available" },
           "truncated": { "type": "boolean", "title": "Truncated" },
+          "ok": { "type": "boolean", "title": "OK" },
+          "status": { "type": "string", "title": "Status" },
+          "errorCount": { "type": "number", "title": "Error count" },
+          "warningCount": { "type": "number", "title": "Warning count" },
+          "errors": { "type": "array", "title": "Errors", "items": { "type": "object", "properties": { "code": { "type": "string" }, "message": { "type": "string" }, "field": { "type": "string" } } } },
+          "warnings": { "type": "array", "title": "Warnings", "items": { "type": "object", "properties": { "code": { "type": "string" }, "message": { "type": "string" }, "field": { "type": "string" } } } }
+        }
+      }
+    },
+    {
+      "name": "loadTabs",
+      "label": "Load Tabs",
+      "description": "Load several tabs in one batched call. With no tabs given it loads ALL tabs in the spreadsheet. Returns per-tab headers and rows. One batched read (plus one metadata call when loading all) — far cheaper than looping Load Rows.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "spreadsheetId": { "type": "string", "title": "Spreadsheet ID or URL", "description": "The Google Sheet's id, or a full sheet URL." },
+          "tabs": { "type": "array", "title": "Tabs (optional)", "description": "Tab names to load. Omit or leave empty to load ALL tabs.", "items": { "type": "string" } },
+          "headerRow": { "type": "number", "title": "Header row (1-based)", "description": "Which row holds the column headers in each tab. Defaults to 1." },
+          "valueMode": { "type": "string", "title": "Value mode", "description": "formatted (default), unformatted, or formula." }
+        },
+        "required": ["spreadsheetId"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "spreadsheetId": { "type": "string", "title": "Spreadsheet ID" },
+          "tabs": {
+            "type": "array",
+            "title": "Tabs",
+            "items": {
+              "type": "object",
+              "properties": {
+                "tab": { "type": "string", "title": "Tab name" },
+                "headers": { "type": "array", "title": "Column headers", "items": { "type": "string" } },
+                "rows": { "type": "array", "title": "Rows", "items": { "type": "object" } },
+                "rowCount": { "type": "number", "title": "Row count" }
+              }
+            }
+          },
+          "tabCount": { "type": "number", "title": "Tab count" },
+          "totalRows": { "type": "number", "title": "Total rows across tabs" },
           "ok": { "type": "boolean", "title": "OK" },
           "status": { "type": "string", "title": "Status" },
           "errorCount": { "type": "number", "title": "Error count" },

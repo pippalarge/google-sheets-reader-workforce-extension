@@ -14,7 +14,8 @@ Built for four jobs:
 | --- | --- | --- |
 | `listTabs` | List every tab in a sheet (the tab name is often itself a lookup key). | API key |
 | `describeSheet` | Inspect one tab: its real used size and its column headers. | API key |
-| `readRows` | Read a tab (or an A1 range) as header-keyed row objects, with `limit`/`offset` paging. | API key |
+| `loadRows` | Load one tab (or an A1 range) as header-keyed row objects, with `limit`/`offset` paging. | API key |
+| `loadTabs` | Load several tabs in one batched call — all tabs by default. | API key |
 | `getColumnValues` | Read the values down a single named column — the reference-data workhorse. | API key |
 | `lookupRows` | Find rows where a column matches a value; optionally return only selected columns. | API key |
 | `appendRows` | **Write** — append new rows to the bottom of a tab. Safe: never overwrites. | OAuth |
@@ -33,13 +34,13 @@ This extension and [CSV Tools](https://github.com/pippalarge/csv-tools-workforce
 - **Google Sheets Reader = I/O** — gets `rows` out of a live, business-owned sheet.
 - **CSV Tools = transforms** — pure-CPU `filterRows` / `selectColumns` / `validateRows` / `dedupeRows` / `chunkRows` / `toJson` / `arrayToCsv` over those same `rows`.
 
-`readRows` outputs `{ rows: [...] }`, every CSV Tools action takes and returns `{ rows: [...] }`, and `appendRows` takes `{ rows: [...] }` — so a full read → transform → write-back round-trip chains directly:
+`loadRows` outputs `{ rows: [...] }`, every CSV Tools action takes and returns `{ rows: [...] }`, and `appendRows` takes `{ rows: [...] }` — so a full read → transform → write-back round-trip chains directly:
 
 ```
-readRows (Sheets) → validateRows → filterRows → mapColumns (CSV Tools) → appendRows (Sheets write-back)
+loadRows (Sheets) → validateRows → filterRows → mapColumns (CSV Tools) → appendRows (Sheets write-back)
 ```
 
-Use `chunkRows` (CSV Tools) after a single `readRows` to batch rows for per-row API steps and stay under the 10-call sandbox cap.
+Use `chunkRows` (CSV Tools) after a single `loadRows` to batch rows for per-row API steps and stay under the 10-call sandbox cap.
 
 ## Auth — two models, by direction
 
