@@ -1,0 +1,13 @@
+{
+  "name": "google-sheets-reader",
+  "version": "0.1.0",
+  "description": "Amplience Workforce extension — read-only Google Sheets reader (tabs, rows, columns, lookups)",
+  "license": "MIT",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "node --test",
+    "validate": "node validate.mjs",
+    "check": "node --test && node validate.mjs"
+  }
+}

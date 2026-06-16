@@ -1,0 +1,198 @@
+{
+  "envSchema": {
+    "type": "object",
+    "properties": {
+      "GOOGLE_API_KEY": {
+        "type": "string",
+        "title": "Google API key",
+        "description": "A Google API key with the Google Sheets API enabled. Only works against sheets shared as \"anyone with the link can view\"."
+      }
+    }
+  },
+  "actions": [
+    {
+      "name": "listTabs",
+      "label": "List Tabs",
+      "description": "List every tab (worksheet) in a Google Sheet, with each tab's allocated grid size. Use to discover tabs before reading one — the tab name is often itself a lookup key. Makes one API call.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "spreadsheetId": {
+            "type": "string",
+            "title": "Spreadsheet ID or URL",
+            "description": "The Google Sheet's id, or a full sheet URL."
+          }
+        },
+        "required": ["spreadsheetId"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "spreadsheetId": { "type": "string", "title": "Spreadsheet ID" },
+          "title": { "type": "string", "title": "Spreadsheet title" },
+          "tabs": {
+            "type": "array",
+            "title": "Tabs",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string", "title": "Tab name" },
+                "sheetId": { "type": "number", "title": "Sheet ID" },
+                "gridRows": { "type": "number", "title": "Allocated rows (not populated count)" },
+                "gridColumns": { "type": "number", "title": "Allocated columns" }
+              }
+            }
+          },
+          "tabCount": { "type": "number", "title": "Tab count" },
+          "ok": { "type": "boolean", "title": "OK" },
+          "status": { "type": "string", "title": "Status" },
+          "errorCount": { "type": "number", "title": "Error count" },
+          "warningCount": { "type": "number", "title": "Warning count" },
+          "errors": { "type": "array", "title": "Errors", "items": { "type": "object", "properties": { "code": { "type": "string" }, "message": { "type": "string" }, "field": { "type": "string" } } } },
+          "warnings": { "type": "array", "title": "Warnings", "items": { "type": "object", "properties": { "code": { "type": "string" }, "message": { "type": "string" }, "field": { "type": "string" } } } }
+        }
+      }
+    },
+    {
+      "name": "describeSheet",
+      "label": "Describe Sheet",
+      "description": "Inspect one tab: its real used row/column count and its column headers (header names are trimmed). Detects the populated range, ignoring stray formatting that inflates the reported grid size. Makes one API call.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "spreadsheetId": { "type": "string", "title": "Spreadsheet ID or URL", "description": "The Google Sheet's id, or a full sheet URL." },
+          "tab": { "type": "string", "title": "Tab name", "description": "The worksheet/tab to inspect." },
+          "headerRow": { "type": "number", "title": "Header row (1-based)", "description": "Which row holds the column headers. Defaults to 1." },
+          "valueMode": { "type": "string", "title": "Value mode", "description": "formatted (default), unformatted, or formula." }
+        },
+        "required": ["spreadsheetId", "tab"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "spreadsheetId": { "type": "string", "title": "Spreadsheet ID" },
+          "tab": { "type": "string", "title": "Tab" },
+          "headerRow": { "type": "number", "title": "Header row" },
+          "columns": { "type": "array", "title": "Column headers", "items": { "type": "string" } },
+          "columnCount": { "type": "number", "title": "Column count" },
+          "usedRows": { "type": "number", "title": "Used rows (incl. header)" },
+          "usedColumns": { "type": "number", "title": "Used columns" },
+          "ok": { "type": "boolean", "title": "OK" },
+          "status": { "type": "string", "title": "Status" },
+          "errorCount": { "type": "number", "title": "Error count" },
+          "warningCount": { "type": "number", "title": "Warning count" },
+          "errors": { "type": "array", "title": "Errors", "items": { "type": "object", "properties": { "code": { "type": "string" }, "message": { "type": "string" }, "field": { "type": "string" } } } },
+          "warnings": { "type": "array", "title": "Warnings", "items": { "type": "object", "properties": { "code": { "type": "string" }, "message": { "type": "string" }, "field": { "type": "string" } } } }
+        }
+      }
+    },
+    {
+      "name": "readRows",
+      "label": "Read Rows",
+      "description": "Read a tab (or an explicit A1 range within it) as header-keyed row objects. Use for product feeds, eval data, and flow inputs. Supports paging with limit/offset. Makes one API call.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "spreadsheetId": { "type": "string", "title": "Spreadsheet ID or URL", "description": "The Google Sheet's id, or a full sheet URL." },
+          "tab": { "type": "string", "title": "Tab name", "description": "The worksheet/tab to read." },
+          "range": { "type": "string", "title": "A1 range (optional)", "description": "A range within the tab, e.g. A1:D100. Omit to read the whole used range." },
+          "headerRow": { "type": "number", "title": "Header row (1-based)", "description": "Which row holds the column headers. Defaults to 1." },
+          "valueMode": { "type": "string", "title": "Value mode", "description": "formatted (default), unformatted, or formula." },
+          "limit": { "type": "number", "title": "Max rows", "description": "Maximum data rows to return (after offset)." },
+          "offset": { "type": "number", "title": "Offset", "description": "Number of leading data rows to skip. Defaults to 0." }
+        },
+        "required": ["spreadsheetId", "tab"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "spreadsheetId": { "type": "string", "title": "Spreadsheet ID" },
+          "tab": { "type": "string", "title": "Tab" },
+          "headers": { "type": "array", "title": "Column headers", "items": { "type": "string" } },
+          "rows": { "type": "array", "title": "Rows", "items": { "type": "object" } },
+          "rowCount": { "type": "number", "title": "Returned row count" },
+          "totalRows": { "type": "number", "title": "Total data rows available" },
+          "truncated": { "type": "boolean", "title": "Truncated" },
+          "ok": { "type": "boolean", "title": "OK" },
+          "status": { "type": "string", "title": "Status" },
+          "errorCount": { "type": "number", "title": "Error count" },
+          "warningCount": { "type": "number", "title": "Warning count" },
+          "errors": { "type": "array", "title": "Errors", "items": { "type": "object", "properties": { "code": { "type": "string" }, "message": { "type": "string" }, "field": { "type": "string" } } } },
+          "warnings": { "type": "array", "title": "Warnings", "items": { "type": "object", "properties": { "code": { "type": "string" }, "message": { "type": "string" }, "field": { "type": "string" } } } }
+        }
+      }
+    },
+    {
+      "name": "getColumnValues",
+      "label": "Get Column Values",
+      "description": "Read the values down a single named column (matched by trimmed, case-insensitive header). The reference-data workhorse: allowed values for an attribute, a dictionary, a rules list. Optional distinct/dropEmpty. Makes one API call.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "spreadsheetId": { "type": "string", "title": "Spreadsheet ID or URL", "description": "The Google Sheet's id, or a full sheet URL." },
+          "tab": { "type": "string", "title": "Tab name", "description": "The worksheet/tab to read." },
+          "column": { "type": "string", "title": "Column header", "description": "The column to read, by header name." },
+          "headerRow": { "type": "number", "title": "Header row (1-based)", "description": "Which row holds the column headers. Defaults to 1." },
+          "valueMode": { "type": "string", "title": "Value mode", "description": "formatted (default), unformatted, or formula." },
+          "distinct": { "type": "boolean", "title": "Distinct only", "description": "Drop duplicate values. Defaults to false." },
+          "dropEmpty": { "type": "boolean", "title": "Drop empty", "description": "Drop blank cells. Defaults to true." }
+        },
+        "required": ["spreadsheetId", "tab", "column"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "spreadsheetId": { "type": "string", "title": "Spreadsheet ID" },
+          "tab": { "type": "string", "title": "Tab" },
+          "column": { "type": "string", "title": "Resolved column header" },
+          "values": { "type": "array", "title": "Values", "items": {} },
+          "count": { "type": "number", "title": "Value count" },
+          "ok": { "type": "boolean", "title": "OK" },
+          "status": { "type": "string", "title": "Status" },
+          "errorCount": { "type": "number", "title": "Error count" },
+          "warningCount": { "type": "number", "title": "Warning count" },
+          "errors": { "type": "array", "title": "Errors", "items": { "type": "object", "properties": { "code": { "type": "string" }, "message": { "type": "string" }, "field": { "type": "string" } } } },
+          "warnings": { "type": "array", "title": "Warnings", "items": { "type": "object", "properties": { "code": { "type": "string" }, "message": { "type": "string" }, "field": { "type": "string" } } } }
+        }
+      }
+    },
+    {
+      "name": "lookupRows",
+      "label": "Lookup Rows",
+      "description": "Find rows where a column matches a value, optionally returning only selected columns. Powers key->value mapping lookups across a table. matchMode: eq (default), contains, or startsWith. Makes one API call.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "spreadsheetId": { "type": "string", "title": "Spreadsheet ID or URL", "description": "The Google Sheet's id, or a full sheet URL." },
+          "tab": { "type": "string", "title": "Tab name", "description": "The worksheet/tab to search." },
+          "matchColumn": { "type": "string", "title": "Match column", "description": "The column to match against, by header name." },
+          "matchValue": { "type": "string", "title": "Match value", "description": "The value to look for in matchColumn." },
+          "returnColumns": { "type": "array", "title": "Return columns (optional)", "description": "Only return these columns. Omit to return whole rows.", "items": { "type": "string" } },
+          "matchMode": { "type": "string", "title": "Match mode", "description": "eq (default), contains, or startsWith." },
+          "caseInsensitive": { "type": "boolean", "title": "Case insensitive", "description": "Defaults to true." },
+          "headerRow": { "type": "number", "title": "Header row (1-based)", "description": "Which row holds the column headers. Defaults to 1." },
+          "valueMode": { "type": "string", "title": "Value mode", "description": "formatted (default), unformatted, or formula." },
+          "limit": { "type": "number", "title": "Max matches", "description": "Maximum matching rows to return." }
+        },
+        "required": ["spreadsheetId", "tab", "matchColumn", "matchValue"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "spreadsheetId": { "type": "string", "title": "Spreadsheet ID" },
+          "tab": { "type": "string", "title": "Tab" },
+          "matchColumn": { "type": "string", "title": "Resolved match column" },
+          "matchValue": { "type": "string", "title": "Match value" },
+          "rows": { "type": "array", "title": "Matching rows", "items": { "type": "object" } },
+          "rowCount": { "type": "number", "title": "Match count" },
+          "ok": { "type": "boolean", "title": "OK" },
+          "status": { "type": "string", "title": "Status" },
+          "errorCount": { "type": "number", "title": "Error count" },
+          "warningCount": { "type": "number", "title": "Warning count" },
+          "errors": { "type": "array", "title": "Errors", "items": { "type": "object", "properties": { "code": { "type": "string" }, "message": { "type": "string" }, "field": { "type": "string" } } } },
+          "warnings": { "type": "array", "title": "Warnings", "items": { "type": "object", "properties": { "code": { "type": "string" }, "message": { "type": "string" }, "field": { "type": "string" } } } }
+        }
+      }
+    }
+  ]
+}
