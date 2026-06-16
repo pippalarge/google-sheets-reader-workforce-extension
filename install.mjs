@@ -22,12 +22,27 @@
 // Per-extension metadata is read from extension.config.json (see that file).
 
 import fs from "node:fs";
+import path from "node:path";
 import readline from "node:readline";
 
 // --- tiny .env loader (no dependency) --------------------------------------
+// Looks for a .env starting in the current folder and walking UP to the
+// filesystem root, so a single shared .env (e.g. at the workspace root) serves
+// every extension. A per-extension .env, if present, is found first and wins.
+function findEnvFile() {
+  let dir = process.cwd();
+  for (;;) {
+    const p = path.join(dir, ".env");
+    if (fs.existsSync(p)) return p;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
 function loadEnv() {
-  if (!fs.existsSync(".env")) return;
-  for (const line of fs.readFileSync(".env", "utf8").split("\n")) {
+  const file = findEnvFile();
+  if (!file) return;
+  for (const line of fs.readFileSync(file, "utf8").split("\n")) {
     const t = line.trim();
     if (!t || t.startsWith("#")) continue;
     const eq = t.indexOf("=");
